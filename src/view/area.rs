@@ -98,29 +98,39 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
             canvas::Event::Mouse(mouse_event) => match mouse_event {
                 mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
                     if let Some(p) = cursor.position_over(bounds) {
-                        if self.tool == Tool::Brush && btn == mouse::Button::Left {
-                            state.action = InternalStateAction::Brushing;
-                            let coords =
-                                clamped_position_in(p, bounds, self.area.size, self.pixel_size);
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::AreaBrush {
-                                    position: self.position,
-                                    area_id: self.area_id.clone(),
-                                    coords,
-                                    selection: self.tile_block.clone(),
-                                    palette_only: self.palette_only_brush,
-                                }),
-                            );
-                        } else {
-                            state.action = InternalStateAction::Selecting;
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::StartTileSelection(
-                                    clamped_position_in(p, bounds, self.area.size, self.pixel_size),
-                                    crate::message::SelectionSource::Area(self.position),
-                                )),
-                            );
+                        match (self.tool, btn) {
+                            (Tool::Brush, mouse::Button::Left) => {
+                                state.action = InternalStateAction::Brushing;
+                                let coords =
+                                    clamped_position_in(p, bounds, self.area.size, self.pixel_size);
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::AreaBrush {
+                                        position: self.position,
+                                        area_id: self.area_id.clone(),
+                                        coords,
+                                        selection: self.tile_block.clone(),
+                                        palette_only: self.palette_only_brush,
+                                    }),
+                                );
+                            }
+                            (Tool::Select, mouse::Button::Left | mouse::Button::Right)
+                            | (Tool::Brush, mouse::Button::Right) => {
+                                state.action = InternalStateAction::Selecting;
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::StartTileSelection(
+                                        clamped_position_in(
+                                            p,
+                                            bounds,
+                                            self.area.size,
+                                            self.pixel_size,
+                                        ),
+                                        crate::message::SelectionSource::Area(self.position),
+                                    )),
+                                );
+                            }
+                            _ => {}
                         }
                     };
                 }
@@ -361,8 +371,12 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         bounds: iced::Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if self.tool == Tool::Brush && cursor.is_over(bounds) {
-            mouse::Interaction::Crosshair
+        if cursor.is_over(bounds) {
+            match self.tool {
+                Tool::Select => mouse::Interaction::default(),
+                Tool::Brush => mouse::Interaction::Crosshair,
+                Tool::Move => mouse::Interaction::NotAllowed,
+            }
         } else {
             mouse::Interaction::default()
         }
@@ -376,7 +390,6 @@ struct AreaSelect {
     right: TileCoord,
     selecting_active: bool,
     pixel_size: f32,
-    tool: Tool,
     show_grid: bool,
     grid_alpha: f32,
 }
@@ -466,22 +479,6 @@ impl canvas::Program<Message> for AreaSelect {
         }
         vec![frame.into_geometry()]
     }
-
-    fn mouse_interaction(
-        &self,
-        _interaction: &Self::State,
-        bounds: iced::Rectangle,
-        cursor: mouse::Cursor,
-    ) -> mouse::Interaction {
-        if cursor.is_over(bounds) {
-            match self.tool {
-                Tool::Select => mouse::Interaction::default(),
-                Tool::Brush => mouse::Interaction::Crosshair,
-            }
-        } else {
-            mouse::Interaction::default()
-        }
-    }
 }
 
 pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Message> {
@@ -536,7 +533,6 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
                 top,
                 bottom,
                 pixel_size,
-                tool: state.tool,
                 show_grid: state.show_grid,
                 grid_alpha: state.global_config.grid_alpha,
             })

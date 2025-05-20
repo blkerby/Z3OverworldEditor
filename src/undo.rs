@@ -289,6 +289,22 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
             })
         }
         Message::OpenTile { .. } => UndoAction::None,
+        Message::MovingTilesProgress { .. } => UndoAction::None,
+        &Message::MoveTiles {
+            ref src_selection,
+            ref dst_selection,
+            check_reversible,
+        } => {
+            if !check_reversible {
+                return Ok(UndoAction::Irreversible);
+            }
+            UndoAction::Ok(Message::MoveTiles {
+                src_selection: dst_selection.clone(),
+                dst_selection: src_selection.clone(),
+                check_reversible: false,
+            })
+        }
+        Message::MoveTilesConfirmDialogue { .. } => UndoAction::None,
     };
     Ok(action)
 }

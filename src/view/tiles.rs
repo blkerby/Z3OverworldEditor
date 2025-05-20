@@ -2,18 +2,23 @@
 use iced::{
     mouse,
     widget::{
-        button, canvas, column, row,
+        button, canvas, column, container, horizontal_space, row,
         scrollable::{Direction, Scrollbar},
         stack, text, Scrollable,
     },
     Element, Length, Point, Rectangle, Size,
 };
+use log::warn;
 
 use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
-    state::{ColorIdx, EditorState, Palette, Tile, TileCoord, Tool},
+    state::{
+        ColorIdx, EditorState, Flip, Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool,
+    },
 };
+
+use super::modal_background_style;
 
 // We use two separate canvases: one for drawing the tile raster and one for the tile selection.
 // This is to work around a limitation in Iced's rendering pipeline that does not allow drawing
@@ -23,6 +28,7 @@ struct TileGrid<'a> {
     palette: &'a Palette,
     pixel_size: f32,
     end_coords: Option<(TileCoord, TileCoord)>,
+    tile_block: &'a TileBlock,
     selected_gfx: &'a Vec<Vec<Tile>>,
     thickness: f32,
     identify_color: bool,
@@ -80,36 +86,88 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
             canvas::Event::Mouse(mouse_event) => match mouse_event {
                 mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
                     if let Some(p) = cursor.position_over(bounds) {
-                        if self.tool == Tool::Brush && btn == mouse::Button::Left {
-                            state.action = InternalStateAction::Brushing;
-                            let coords = clamped_position_in(
-                                p,
-                                bounds,
-                                self.palette.tiles.len() / 16,
-                                self.pixel_size,
-                            );
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::TilesetBrush {
-                                    palette_id: self.palette.id,
-                                    coords,
-                                    selected_gfx: self.selected_gfx.clone(),
-                                }),
-                            );
-                        } else {
-                            state.action = InternalStateAction::Selecting;
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::StartTileSelection(
-                                    clamped_position_in(
-                                        p,
-                                        bounds,
-                                        self.palette.tiles.len() / 16,
-                                        self.pixel_size,
-                                    ),
-                                    crate::message::SelectionSource::Tileset,
-                                )),
-                            );
+                        match (self.tool, btn) {
+                            (Tool::Brush, mouse::Button::Left) => {
+                                state.action = InternalStateAction::Brushing;
+                                let coords = clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.palette.tiles.len() / 16,
+                                    self.pixel_size,
+                                );
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::TilesetBrush {
+                                        palette_id: self.palette.id,
+                                        coords,
+                                        selected_gfx: self.selected_gfx.clone(),
+                                    }),
+                                );
+                            }
+                            (Tool::Select, mouse::Button::Left | mouse::Button::Right)
+                            | (Tool::Brush | Tool::Move, mouse::Button::Right) => {
+                                state.action = InternalStateAction::Selecting;
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::StartTileSelection(
+                                        clamped_position_in(
+                                            p,
+                                            bounds,
+                                            self.palette.tiles.len() / 16,
+                                            self.pixel_size,
+                                        ),
+                                        crate::message::SelectionSource::Tileset,
+                                    )),
+                                );
+                            }
+                            (Tool::Move, mouse::Button::Left) => {
+                                state.action = InternalStateAction::None;
+                                let dst_coords = clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.palette.tiles.len() / 16,
+                                    self.pixel_size,
+                                );
+                                let dst_palette_id = self.palette.id;
+                                let mut palettes: Vec<Vec<PaletteId>> = vec![];
+                                let mut tiles: Vec<Vec<TileIdx>> = vec![];
+                                let mut flips: Vec<Vec<Flip>> = vec![];
+                                for y in 0..self.tile_block.size.1 {
+                                    let mut pal_row: Vec<PaletteId> = vec![];
+                                    let mut tile_row: Vec<TileIdx> = vec![];
+                                    let mut flip_row: Vec<Flip> = vec![];
+                                    for x in 0..self.tile_block.size.0 {
+                                        let x1 = dst_coords.x + x;
+                                        let y1 = dst_coords.y + y;
+                                        let i1 = y1 * 16 + x1;
+                                        if x1 >= 16 || i1 as usize >= self.palette.tiles.len() {
+                                            warn!("Not moving tiles: some destination tiles are out-of-bounds.");
+                                            return (canvas::event::Status::Ignored, None);
+                                        }
+                                        pal_row.push(dst_palette_id);
+                                        tile_row.push(y1 * 16 + x1);
+                                        flip_row.push(Flip::None)
+                                    }
+                                    palettes.push(pal_row);
+                                    tiles.push(tile_row);
+                                    flips.push(flip_row);
+                                }
+                                let dst_selection = TileBlock {
+                                    size: (self.tile_block.size.0, self.tile_block.size.1),
+                                    palettes,
+                                    tiles,
+                                    flips,
+                                };
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::MovingTilesProgress {
+                                        src_selection: self.tile_block.clone(),
+                                        dst_selection,
+                                        check_reversible: true,
+                                    }),
+                                );
+                            }
+                            _ => {}
                         }
                     };
                 }
@@ -252,8 +310,12 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
         bounds: iced::Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if self.tool == Tool::Brush && cursor.is_over(bounds) {
-            mouse::Interaction::Crosshair
+        if cursor.is_over(bounds) {
+            match self.tool {
+                Tool::Select => mouse::Interaction::default(),
+                Tool::Brush => mouse::Interaction::Crosshair,
+                Tool::Move => mouse::Interaction::Move,
+            }
         } else {
             mouse::Interaction::default()
         }
@@ -382,6 +444,7 @@ pub fn tile_view(state: &EditorState, size: Size, reserved_height: f32) -> Eleme
                     palette: &state.palettes[state.palette_idx],
                     pixel_size: pixel_size as f32,
                     end_coords: state.end_coords,
+                    tile_block: &state.selected_tile_block,
                     selected_gfx: &state.selected_gfx,
                     thickness: 1.0,
                     identify_color: state.identify_color,
@@ -417,4 +480,46 @@ pub fn tile_view(state: &EditorState, size: Size, reserved_height: f32) -> Eleme
     ]
     .spacing(5);
     row![col].padding(10).into()
+}
+
+pub fn moving_tiles_progress_view(_state: &EditorState) -> Element<Message> {
+    container(text(
+        "Please wait while the tiles are moved across the project.",
+    ))
+    .width(350)
+    .padding(25)
+    .style(modal_background_style)
+    .into()
+}
+
+pub fn move_tiles_view(
+    _state: &EditorState,
+    src_selection: &TileBlock,
+    dst_selection: &TileBlock,
+) -> Element<'static, Message> {
+    container(
+        column![
+            text("Destination tiles are in use."),
+            text("Moving tiles onto them will collapse the tiles together."),
+            text("This action cannot be undone."),
+            row![
+                button(text("Cancel"))
+                    .style(button::secondary)
+                    .on_press(Message::CloseDialogue),
+                horizontal_space(),
+                button(text("Move tiles")).style(button::danger).on_press(
+                    Message::MovingTilesProgress {
+                        src_selection: src_selection.clone(),
+                        dst_selection: dst_selection.clone(),
+                        check_reversible: false,
+                    }
+                ),
+            ]
+        ]
+        .spacing(15),
+    )
+    .width(500)
+    .padding(25)
+    .style(modal_background_style)
+    .into()
 }

@@ -25,7 +25,7 @@ use palette::{
     used_palettes_view,
 };
 use settings::{import_rom_confirm_view, import_rom_progress_view, settings_view};
-use tiles::tile_view;
+use tiles::{move_tiles_view, moving_tiles_progress_view, tile_view};
 
 use crate::{
     message::Message,
@@ -106,6 +106,11 @@ pub fn help_view(_state: &EditorState) -> Element<Message> {
     let controls = vec![
         ("s", "Select tool", "copy tiles, colors, pixels"),
         ("b", "Brush tool", "paste tiles, colors, pixels"),
+        (
+            "m",
+            "Move tool",
+            "move tiles across palettes (replacing all uses)",
+        ),
         ("g", "Grid toggle", "show/hide 16x16 tile grid"),
         ("h", "Horizontal flip", "flip selection horizontally"),
         ("v", "Vertical flip", "flip selection horizontally"),
@@ -113,24 +118,25 @@ pub fn help_view(_state: &EditorState) -> Element<Message> {
         ("a", "Area view", "show secondary area in side panel"),
         ("-", "Zoom out", "zoom out area views"),
         ("=", "Zoom in", "zoom in area views"),
+        ("Ctrl", "Identify", "highlight uses of selected tile/color"),
     ];
     let mut col = Column::new();
     col = col.push(text("Essential keyboard controls:"));
     for (key, name, desc) in controls {
         col = col.push(
             row![
-                text(key).width(20).font(Font {
+                text(key).width(50).font(Font {
                     weight: iced::font::Weight::ExtraBold,
                     ..Default::default()
                 }),
-                text(format!("{}: {}", name, desc)).width(400),
+                text(format!("{}: {}", name, desc)).width(Length::Fill),
             ]
             .align_y(Vertical::Center),
         );
     }
 
     container(col.spacing(10))
-        .width(450)
+        .width(550)
         .padding(25)
         .style(modal_background_style)
         .into()
@@ -218,6 +224,19 @@ pub fn view_dialogue<'a>(
             Dialogue::ModifiedReload => {
                 modal(main_view, modified_reload_view(state), Message::Nothing)
             }
+            Dialogue::MovingTilesProgress => modal(
+                main_view,
+                moving_tiles_progress_view(state),
+                Message::Nothing,
+            ),
+            Dialogue::MoveTiles {
+                src_selection,
+                dst_selection,
+            } => modal(
+                main_view,
+                move_tiles_view(state, src_selection, dst_selection),
+                Message::Nothing,
+            ),
         }
     } else {
         main_view

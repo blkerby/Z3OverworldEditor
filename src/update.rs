@@ -1,3 +1,4 @@
+use hashbrown::HashMap;
 use iced::{
     keyboard::{self, key},
     widget, window, Event, Point, Task,
@@ -10,10 +11,11 @@ use crate::{
     message::{Message, SelectionSource},
     persist::{
         self, copy_area_theme, delete_area, delete_area_theme, delete_palette, load_area_list,
-        rename_area, rename_area_theme, save_area, save_area_png,
+        remap_tiles, rename_area, rename_area_theme, save_area, save_area_png, scan_used_tiles,
     },
     state::{
-        Area, AreaId, AreaPosition, Dialogue, EditorState, Flip, Focus, PaletteId, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE
+        Area, AreaId, AreaPosition, Dialogue, EditorState, Flip, Focus, PaletteId, Screen,
+        SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -399,6 +401,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         "s" => {
                             state.tool = Tool::Select;
                         }
+                        "m" => {
+                            state.tool = Tool::Move;
+                        }
                         "g" => {
                             state.show_grid = !state.show_grid;
                         }
@@ -474,6 +479,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         Message::RebuildProject => {
             // Save all area PNGs (which could be out-of-date, e.g. if a palette were updated or a new theme created)
+            state.disable_watch_file_changes()?;
             for theme in &state.theme_names.clone() {
                 for area_name in &state.area_names.clone() {
                     let area_id = AreaId {
@@ -489,6 +495,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     }
                 }
             }
+            state.enable_watch_file_changes()?;
             state.dialogue = None;
         }
         &Message::WindowClose(id) => {
@@ -1246,22 +1253,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             };
             let s = &state.selected_tile_block;
 
-            state.selected_gfx.clear();
-            for y in 0..s.size.1 {
-                let mut gfx_row: Vec<Tile> = vec![];
-                for x in 0..s.size.0 {
-                    let palette_id = s.palettes[y as usize][x as usize];
-                    let tile_idx = s.tiles[y as usize][x as usize];
-                    let tile = if let Some(&idx) = state.palettes_id_idx_map.get(&palette_id) {
-                        state.palettes[idx as usize].tiles[tile_idx as usize]
-                    } else {
-                        Tile::default()
-                    };
-                    gfx_row.push(tile);
-                }
-                state.selected_gfx.push(gfx_row);
-            }
-
+            state.selected_gfx = get_selected_gfx(state, &state.selected_tile_block);
             state.start_coords = None;
             state.end_coords = None;
             if left == right && top == bottom {
@@ -1303,6 +1295,97 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 state.palette_idx = palette_idx;
                 state.tile_idx = Some(tile_idx);
             }
+        }
+        Message::MovingTilesProgress {
+            src_selection,
+            dst_selection,
+            check_reversible,
+        } => {
+            state.dialogue = Some(Dialogue::MovingTilesProgress);
+            return Ok(Some(Task::done(Message::MoveTiles {
+                src_selection: src_selection.clone(),
+                dst_selection: dst_selection.clone(),
+                check_reversible: *check_reversible,
+            })));
+        }
+        Message::MoveTiles {
+            src_selection,
+            dst_selection,
+            check_reversible,
+        } => {
+            assert!(src_selection.size == dst_selection.size);
+            let mut mapping: HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)> =
+                HashMap::new();
+
+            // Validate that the selected tiles are unique, and create the mapping:
+            for y in 0..src_selection.size.1 {
+                for x in 0..src_selection.size.0 {
+                    let src_palette_id = src_selection.palettes[y as usize][x as usize];
+                    let src_tile_idx = src_selection.tiles[y as usize][x as usize];
+                    let src_flip = src_selection.flips[y as usize][x as usize];
+                    let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
+                    let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
+                    let dst_flip = dst_selection.flips[y as usize][x as usize];
+                    if mapping.contains_key(&(src_palette_id, src_tile_idx)) {
+                        warn!("Not moving tiles: palette {} tile number {} (${:x}) occurs twice in selection",
+                                src_palette_id, src_tile_idx, src_tile_idx);
+                        return Ok(None);
+                    }
+                    mapping.insert(
+                        (src_palette_id, src_tile_idx),
+                        (
+                            dst_palette_id,
+                            dst_tile_idx,
+                            dst_flip.apply_to_flip(src_flip),
+                        ),
+                    );
+                }
+            }
+
+            // Validate that the source and destination tiles are disjoint:
+            for y in 0..dst_selection.size.1 {
+                for x in 0..dst_selection.size.0 {
+                    let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
+                    let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
+                    if mapping.contains_key(&(dst_palette_id, dst_tile_idx)) {
+                        warn!("Not moving tiles: palette {} tile number {} (${:x}) occurs in both the source and destination",
+                                dst_palette_id, dst_tile_idx, dst_tile_idx);
+                        return Ok(None);
+                    }
+                }
+            }
+
+            if *check_reversible {
+                // Ensure that the destination tiles are unused, so that
+                // the operation will be reversible:
+                let used_tiles = scan_used_tiles(state)?;
+                for y in 0..dst_selection.size.1 {
+                    for x in 0..dst_selection.size.0 {
+                        let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
+                        let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
+                        if used_tiles.contains(&(dst_palette_id, dst_tile_idx)) {
+                            return Ok(Some(Task::done(Message::MoveTilesConfirmDialogue {
+                                src_selection: src_selection.clone(),
+                                dst_selection: dst_selection.clone(),
+                            })));
+                        }
+                    }
+                }
+            }
+
+            // Update the references to the tiles:
+            remap_tiles(state, &mapping)?;
+
+            state.dialogue = None;
+        }
+        Message::MoveTilesConfirmDialogue {
+            src_selection,
+            dst_selection,
+        } => {
+            state.dialogue = Some(Dialogue::MoveTiles {
+                src_selection: src_selection.clone(),
+                dst_selection: dst_selection.clone(),
+            });
         }
     }
     Ok(Some(Task::none()))
@@ -1401,4 +1484,24 @@ pub fn update_palette_order(state: &mut EditorState) {
             state.palette_idx = i;
         }
     }
+}
+
+pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Tile>> {
+    let mut gfx = vec![];
+    for y in 0..s.size.1 {
+        let mut gfx_row: Vec<Tile> = vec![];
+        for x in 0..s.size.0 {
+            let palette_id = s.palettes[y as usize][x as usize];
+            let tile_idx = s.tiles[y as usize][x as usize];
+            let flip = s.flips[y as usize][x as usize];
+            let tile = if let Some(&idx) = state.palettes_id_idx_map.get(&palette_id) {
+                flip.apply_to_tile(state.palettes[idx as usize].tiles[tile_idx as usize])
+            } else {
+                Tile::default()
+            };
+            gfx_row.push(tile);
+        }
+        gfx.push(gfx_row);
+    }
+    gfx
 }

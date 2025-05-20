@@ -146,4 +146,18 @@ pub enum Message {
         palette_id: PaletteId,
         tile_idx: TileIdx,
     },
+    MovingTilesProgress {
+        src_selection: TileBlock,
+        dst_selection: TileBlock,
+        check_reversible: bool,
+    },
+    MoveTiles {
+        src_selection: TileBlock,
+        dst_selection: TileBlock,
+        check_reversible: bool,
+    },
+    MoveTilesConfirmDialogue {
+        src_selection: TileBlock,
+        dst_selection: TileBlock,
+    },
 }

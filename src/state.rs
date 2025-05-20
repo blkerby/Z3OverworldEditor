@@ -130,6 +130,23 @@ impl Flip {
         tile.pixels = self.apply_to_pixels(tile.pixels);
         tile
     }
+
+    pub fn apply_to_flip(self, mut flip: Flip) -> Flip {
+        match self {
+            Flip::None => {}
+            Flip::Horizontal => {
+                flip = flip.flip_horizontally();
+            }
+            Flip::Vertical => {
+                flip = flip.flip_vertically();
+            }
+            Flip::Both => {
+                flip = flip.flip_horizontally();
+                flip = flip.flip_vertically();
+            }
+        }
+        flip
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -230,18 +247,37 @@ pub enum Dialogue {
     Settings,
     ImportROMConfirm,
     ImportROMProgress,
-    AddPalette { name: String, id: PaletteId },
-    RenamePalette { name: String },
+    AddPalette {
+        name: String,
+        id: PaletteId,
+    },
+    RenamePalette {
+        name: String,
+    },
     DeletePalette,
-    AddArea { name: AreaName, size: (u8, u8) },
-    EditArea { name: AreaName },
+    AddArea {
+        name: AreaName,
+        size: (u8, u8),
+    },
+    EditArea {
+        name: AreaName,
+    },
     DeleteArea,
-    AddTheme { name: ThemeName },
-    RenameTheme { name: ThemeName },
+    AddTheme {
+        name: ThemeName,
+    },
+    RenameTheme {
+        name: ThemeName,
+    },
     DeleteTheme,
     Help,
     RebuildProject,
     ModifiedReload,
+    MovingTilesProgress,
+    MoveTiles {
+        src_selection: TileBlock,
+        dst_selection: TileBlock,
+    },
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
@@ -287,6 +323,7 @@ pub enum Tool {
     #[default]
     Select,
     Brush,
+    Move,
 }
 
 pub struct EditorState {

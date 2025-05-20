@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use hashbrown::{HashMap, HashSet};
 use json_pretty_compact::PrettyCompactFormatter;
 use log::info;
 use notify::{recommended_watcher, EventHandler};
@@ -15,8 +16,7 @@ use serde_json::Serializer;
 use crate::{
     helpers::scale_color,
     state::{
-        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId,
-        AreaPosition, EditorState, Palette,
+        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId, AreaPosition, EditorState, Flip, Palette, PaletteId, TileIdx
     },
     update::update_palette_order,
 };
@@ -419,31 +419,62 @@ pub fn delete_area_theme(state: &mut EditorState, area_name: &str, theme: &str) 
     Ok(())
 }
 
-// pub fn _remap_tiles(
-//     state: &mut EditorState,
-//     map: &HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx)>,
-// ) -> Result<()> {
-//     let area_names = state.area_names.clone();
-//     let theme_names = state.theme_names.clone();
-//     for area_name in &area_names {
-//         for theme_name in &theme_names {
-//             load_area(state, area_name, theme_name)?;
-//             for y in 0..state.main_area.size.1 as u16 * 32 {
-//                 for x in 0..state.main_area.size.0 as u16 * 32 {
-//                     let pal = state.main_area.get_palette(x, y).unwrap();
-//                     let tile_idx = state.main_area.get_tile(x, y).unwrap();
-//                     if let Some(&(p1, t1)) = map.get(&(pal, tile_idx)) {
-//                         state.main_area.set_palette(x, y, p1).unwrap();
-//                         state.main_area.set_tile(x, y, t1).unwrap();
-//                         state.main_area.modified = true;
-//                     }
-//                 }
-//             }
-//             save_area(state)?;
-//         }
-//     }
-//     Ok(())
-// }
+pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, TileIdx)>> {
+    let area_names = state.area_names.clone();
+    let theme_names = state.theme_names.clone();
+    let mut out = HashSet::new();
+    for area_name in &area_names {
+        for theme_name in &theme_names {
+            let area_id = AreaId {
+                area: area_name.clone(),
+                theme: theme_name.clone(),
+            };
+            let area = load_area(state, &area_id)?;
+            for y in 0..area.size.1 as u16 * 32 {
+                for x in 0..area.size.0 as u16 * 32 {
+                    let pal = area.get_palette(x, y).unwrap();
+                    let tile_idx = area.get_tile(x, y).unwrap();
+                    out.insert((pal, tile_idx));
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn remap_tiles(
+    state: &mut EditorState,
+    map: &HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)>,
+) -> Result<()> {
+    let area_names = state.area_names.clone();
+    let theme_names = state.theme_names.clone();
+    for area_name in &area_names {
+        for theme_name in &theme_names {
+            let area_id = AreaId {
+                area: area_name.clone(),
+                theme: theme_name.clone(),
+            };
+            let mut area = load_area(state, &area_id)?;
+            for y in 0..area.size.1 as u16 * 32 {
+                for x in 0..area.size.0 as u16 * 32 {
+                    let pal = area.get_palette(x, y).unwrap();
+                    let tile_idx = area.get_tile(x, y).unwrap();
+                    if let Some(&(p, t, f)) = map.get(&(pal, tile_idx)) {
+                        let flip = area.get_flip(x, y)?;
+                        area.set_palette(x, y, p)?;
+                        area.set_tile(x, y, t)?;
+                        area.set_flip(x, y, f.apply_to_flip(flip))?;
+                        area.modified = true;
+                    }
+                }
+            }
+            state.areas.insert(area_id.clone(), area);
+            save_area(state, &area_id)?;
+            state.cleanup_areas()?;
+        }
+    }
+    Ok(())
+}
 
 pub fn save_project(state: &mut EditorState) -> Result<()> {
     if state.global_config.project_dir.is_none() {
@@ -509,6 +540,7 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
         area: state.area_names[0].clone(),
         theme: state.theme_names[0].clone(),
     };
+    state.load_area(&area_id)?;
     state.switch_area(AreaPosition::Main, &area_id)?;
     state.switch_area(AreaPosition::Side, &area_id)?;
     state.palette_idx = 0;
