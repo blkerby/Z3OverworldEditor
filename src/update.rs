@@ -14,8 +14,9 @@ use crate::{
         remap_tiles, rename_area, rename_area_theme, save_area, save_area_png, scan_used_tiles,
     },
     state::{
-        Area, AreaId, AreaPosition, Dialogue, EditorState, Flip, Focus, PaletteId, Screen,
-        SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
+        Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, EditorState, Flip, Focus,
+        PaletteId, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE,
+        MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -75,15 +76,18 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
             palette_id,
             coords,
             selected_gfx,
+            tile_block,
         } => match last_message {
             Message::TilesetBrush {
                 palette_id: last_palette_id,
                 coords: last_coords,
                 selected_gfx: last_selected_gfx,
+                tile_block: last_tile_block,
             } => {
                 palette_id == last_palette_id
                     && coords == last_coords
                     && selected_gfx == last_selected_gfx
+                    && tile_block == last_tile_block
             }
             _ => false,
         },
@@ -134,7 +138,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
             }
             Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                state.palette_only_brush = modifiers.shift();
+                state.shift_brush = modifiers.shift();
                 match state.focus {
                     Focus::None => {}
                     Focus::PickArea(_) => {}
@@ -834,18 +838,46 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             palette_id,
             coords: Point { x: x0, y: y0 },
             selected_gfx: ref s,
+            ref tile_block,
         } => {
             let pal_idx = *state
                 .palettes_id_idx_map
                 .get(&palette_id)
                 .context("undefined palette")?;
+            let mut color_map: HashMap<ColorRGB, ColorIdx> = HashMap::new();
+            if tile_block.is_some() {
+                for (i, &c) in state.palettes[pal_idx].colors.iter().enumerate().skip(1) {
+                    color_map.insert(c, i as ColorIdx);
+                }
+            }
             for y in 0..s.len() {
                 for x in 0..s[0].len() {
                     let y1 = y + y0 as usize;
                     let x1 = x + x0 as usize;
                     let i = y1 * 16 + x1;
                     if x1 < 16 && i < state.palettes[pal_idx].tiles.len() {
-                        state.palettes[pal_idx].tiles[i] = s[y as usize][x as usize];
+                        let mut tile = s[y as usize][x as usize];
+                        if let Some(t) = tile_block {
+                            let src_pal_id = t.palettes[y][x];
+                            if src_pal_id == palette_id {
+                                continue;
+                            }
+                            let src_pal_idx = state.palettes_id_idx_map[&src_pal_id];
+                            let src_pal = &state.palettes[src_pal_idx];
+                            for py in 0..8 {
+                                for px in 0..8 {
+                                    let src_color_idx = tile.pixels[py][px] as usize;
+                                    if src_color_idx == 0 {
+                                        continue;
+                                    }
+                                    let color = src_pal.colors[src_color_idx];
+                                    if let Some(&color_idx) = color_map.get(&color) {
+                                        tile.pixels[py][px] = color_idx;
+                                    }
+                                }
+                            }
+                        }
+                        state.palettes[pal_idx].tiles[i] = tile;
                     }
                 }
             }
@@ -1276,6 +1308,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             let s = selection;
             let p = coords;
             let area = state.area_mut(position);
+            info!("{:?}", selection);
             for y in 0..s.size.1 {
                 for x in 0..s.size.0 {
                     let _ = area.set_palette(p.x + x, p.y + y, s.palettes[y as usize][x as usize]);

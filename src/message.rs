@@ -88,6 +88,7 @@ pub enum Message {
         palette_id: PaletteId,
         coords: Point<TileCoord>,
         selected_gfx: Vec<Vec<Tile>>,
+        tile_block: Option<TileBlock>,
     },
     SelectPixel(PixelCoord, PixelCoord),
     BrushPixel {

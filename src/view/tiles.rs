@@ -32,6 +32,7 @@ struct TileGrid<'a> {
     selected_gfx: &'a Vec<Vec<Tile>>,
     thickness: f32,
     identify_color: bool,
+    brush_graphics_only: bool,
     color_idx: Option<ColorIdx>,
     tool: Tool,
 }
@@ -101,6 +102,11 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
                                         palette_id: self.palette.id,
                                         coords,
                                         selected_gfx: self.selected_gfx.clone(),
+                                        tile_block: if self.brush_graphics_only {
+                                            None
+                                        } else {
+                                            Some(self.tile_block.clone())
+                                        },
                                     }),
                                 );
                             }
@@ -222,6 +228,11 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
                                     palette_id: self.palette.id,
                                     coords,
                                     selected_gfx: self.selected_gfx.clone(),
+                                    tile_block: if self.brush_graphics_only {
+                                        None
+                                    } else {
+                                        Some(self.tile_block.clone())
+                                    },
                                 }),
                             );
                         }
@@ -450,6 +461,7 @@ pub fn tile_view(state: &EditorState, size: Size, reserved_height: f32) -> Eleme
                     identify_color: state.identify_color,
                     color_idx: state.color_idx,
                     tool: state.tool,
+                    brush_graphics_only: state.shift_brush,
                 })
                 .width(384 + 4)
                 .height((num_rows * 8 * pixel_size + 4) as f32),

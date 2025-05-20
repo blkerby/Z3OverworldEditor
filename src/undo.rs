@@ -161,6 +161,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
             palette_id,
             coords: Point { x: x0, y: y0 },
             ref selected_gfx,
+            ..
         } => {
             let pal_idx = *state
                 .palettes_id_idx_map
@@ -183,6 +184,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 palette_id,
                 coords: Point { x: x0, y: y0 },
                 selected_gfx: s,
+                tile_block: None,
             });
             msg
         }
@@ -269,6 +271,9 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                     if let Ok(f) = state.areas[area_id].get_flip(coords.x + x, coords.y + y) {
                         flip_row.push(f);
                     }
+                }
+                if palette_row.is_empty() {
+                    break;
                 }
                 palettes.push(palette_row);
                 tiles.push(tile_row);

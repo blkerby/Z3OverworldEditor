@@ -513,7 +513,7 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
                 pixel_size,
                 end_coords: state.end_coords,
                 // thickness: 1.0,
-                palette_only_brush: state.palette_only_brush,
+                palette_only_brush: state.shift_brush,
                 tile_block: &state.selected_tile_block,
                 identify_tile: state.identify_tile,
                 palette_idx: state.palette_idx,

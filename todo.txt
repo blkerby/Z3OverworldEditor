@@ -11,3 +11,7 @@ Some features still needed:
 - add status bar to show cursor position & tile info? (e.g. palette, tile number, collision type, flip)
   - right clicking can show most of this info, but for a broken palette it won't be available.
 - show preview of brush onto tileset
+
+Bugs to fix:
+- pixel brush loses mouse release when OOB
+- pixel brush debounce isn't working?

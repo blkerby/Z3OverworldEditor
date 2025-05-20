@@ -347,7 +347,7 @@ pub struct EditorState {
     // General editing state:
     pub focus: Focus,
     pub tool: Tool,
-    pub palette_only_brush: bool,
+    pub shift_brush: bool,
     pub side_panel_view: SidePanelView,
 
     // Palette editing state:
@@ -566,7 +566,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         undo_stack: vec![],
         redo_stack: vec![],
         tool: Tool::default(),
-        palette_only_brush: false,
+        shift_brush: false,
         side_panel_view: SidePanelView::default(),
         focus: Focus::None,
         palette_idx: 0,
