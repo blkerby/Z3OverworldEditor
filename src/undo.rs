@@ -244,6 +244,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         }),
         Message::DeleteThemeDialogue => UndoAction::None,
         Message::DeleteTheme(_) => UndoAction::Irreversible,
+        Message::HoverArea(_) => UndoAction::None,
         Message::StartTileSelection(_, _) => UndoAction::None,
         Message::ProgressTileSelection(_) => UndoAction::None,
         Message::EndTileSelection(_) => UndoAction::None,

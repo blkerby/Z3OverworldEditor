@@ -133,6 +133,7 @@ pub enum Message {
     },
     DeleteThemeDialogue,
     DeleteTheme(String),
+    HoverArea(Point<TileCoord>),
     StartTileSelection(Point<TileCoord>, SelectionSource),
     ProgressTileSelection(Point<TileCoord>),
     EndTileSelection(Point<TileCoord>),

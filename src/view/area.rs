@@ -16,7 +16,8 @@ use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
     state::{
-        Area, AreaId, AreaPosition, ColorIdx, EditorState, Focus, Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool
+        Area, AreaId, AreaPosition, ColorIdx, EditorState, Focus, Palette, PaletteId, Tile,
+        TileBlock, TileCoord, TileIdx, Tool,
     },
 };
 
@@ -173,7 +174,20 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                     }
                 }
                 mouse::Event::CursorMoved { .. } => match state.action {
-                    InternalStateAction::None => {}
+                    InternalStateAction::None => {
+                        if let Some(p) = cursor.position() {
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::HoverArea(clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.area.size,
+                                    self.pixel_size,
+                                    self.snap_grid_16,
+                                ))),
+                            );
+                        }
+                    }
                     InternalStateAction::Selecting => {
                         if let Some(p) = cursor.position() {
                             return (
@@ -423,8 +437,10 @@ struct AreaSelect {
     right: TileCoord,
     selecting_active: bool,
     pixel_size: f32,
-    show_grid: bool,
+    show_grid_16: bool,
+    snap_grid_16: bool,
     grid_alpha: f32,
+    hover_coords: Option<(TileCoord, TileCoord)>,
 }
 
 impl canvas::Program<Message> for AreaSelect {
@@ -439,7 +455,7 @@ impl canvas::Program<Message> for AreaSelect {
         bounds: iced::Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
-        if !self.selecting_active && !self.show_grid {
+        if !self.selecting_active && !self.show_grid_16 && self.hover_coords.is_none() {
             return vec![];
         }
 
@@ -448,7 +464,7 @@ impl canvas::Program<Message> for AreaSelect {
             self.pixel_size * bounds.size().width / (bounds.size().width - self.pixel_size);
         let pixel_size_y =
             self.pixel_size * bounds.size().height / (bounds.size().height - self.pixel_size);
-        if self.show_grid {
+        if self.show_grid_16 {
             let rows16 = (bounds.size().height / (pixel_size_y * 16.0)) as u16;
             let cols16 = (bounds.size().width / (pixel_size_x * 16.0)) as u16;
 
@@ -509,6 +525,31 @@ impl canvas::Program<Message> for AreaSelect {
                     },
                 );
             }
+        } else if let Some(h) = self.hover_coords {
+            let x0 = h.0 as f32 * pixel_size_x * 8.0 + pixel_size_x / 2.0;
+            let mut x1 = (h.0 + 1) as f32 * pixel_size_x * 8.0 + pixel_size_x / 2.0;
+            let y0 = h.1 as f32 * pixel_size_y * 8.0 + pixel_size_y / 2.0;
+            let mut y1 = (h.1 + 1) as f32 * pixel_size_y * 8.0 + pixel_size_y / 2.0;
+            if self.snap_grid_16 {
+                x1 += 8.0 * pixel_size_x;
+                y1 += 8.0 * pixel_size_y;
+            }
+
+            let path = canvas::Path::rectangle(
+                iced::Point { x: x0, y: y0 },
+                Size {
+                    width: x1 - x0,
+                    height: y1 - y0,
+                },
+            );
+            frame.stroke(
+                &path,
+                canvas::Stroke {
+                    style: canvas::stroke::Style::Solid(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.3)),
+                    width: 1.0,
+                    ..Default::default()
+                },
+            );
         }
         vec![frame.into_geometry()]
     }
@@ -572,7 +613,9 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
                 top,
                 bottom,
                 pixel_size,
-                show_grid: state.show_grid_16,
+                show_grid_16: state.show_grid_16,
+                snap_grid_16: state.snap_grid_16,
+                hover_coords: state.hover_coords,
                 grid_alpha: state.global_config.grid_alpha,
             })
             .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)

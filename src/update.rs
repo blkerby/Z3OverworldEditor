@@ -1227,6 +1227,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             state.dialogue = None;
         }
+        Message::HoverArea(p) => {
+            state.hover_coords = Some((p.x, p.y));
+        }
         &Message::StartTileSelection(p, source) => {
             state.selection_source = source;
             state.start_coords = Some((p.x, p.y));
@@ -1234,8 +1237,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         Message::ProgressTileSelection(p) => {
             state.end_coords = Some((p.x, p.y));
+            state.hover_coords = Some((p.x, p.y));
         }
         Message::EndTileSelection(p1) => {
+            state.hover_coords = Some((p1.x, p1.y));
             let p1 = (p1.x, p1.y);
             let Some(p0) = state.start_coords else {
                 return Ok(None);
