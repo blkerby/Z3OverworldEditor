@@ -371,7 +371,8 @@ pub struct EditorState {
     pub end_coords: Option<(TileCoord, TileCoord)>,
     pub selected_tile_block: TileBlock,
     pub selected_gfx: Vec<Vec<Tile>>,
-    pub show_grid: bool,
+    pub show_grid_16: bool,
+    pub snap_grid_16: bool,
 
     // Filesystem watch (to detect externa modifications)
     pub watcher: Option<notify::RecommendedWatcher>,
@@ -580,7 +581,8 @@ pub fn get_initial_state() -> Result<EditorState> {
         end_coords: None,
         selected_tile_block: TileBlock::default(),
         selected_gfx: vec![],
-        show_grid: false,
+        show_grid_16: false,
+        snap_grid_16: false,
         pixel_coords: None,
         watcher: None,
         watch_enabled: false,

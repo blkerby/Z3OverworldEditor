@@ -409,7 +409,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             state.tool = Tool::Move;
                         }
                         "g" => {
-                            state.show_grid = !state.show_grid;
+                            state.show_grid_16 = !state.show_grid_16;
+                        }
+                        "p" => {
+                            state.snap_grid_16 = !state.snap_grid_16;
                         }
                         "t" => {
                             state.side_panel_view = SidePanelView::Tileset;
@@ -1239,9 +1242,14 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             };
 
             let left = p0.0.min(p1.0);
-            let right = p0.0.max(p1.0);
+            let mut right = p0.0.max(p1.0);
             let top = p0.1.min(p1.1);
-            let bottom = p0.1.max(p1.1);
+            let mut bottom = p0.1.max(p1.1);
+
+            if state.snap_grid_16 {
+                right += 1;
+                bottom += 1;
+            }
 
             match state.selection_source {
                 SelectionSource::Area(position) => {
@@ -1308,7 +1316,6 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             let s = selection;
             let p = coords;
             let area = state.area_mut(position);
-            info!("{:?}", selection);
             for y in 0..s.size.1 {
                 for x in 0..s.size.0 {
                     let _ = area.set_palette(p.x + x, p.y + y, s.palettes[y as usize][x as usize]);
@@ -1528,7 +1535,11 @@ pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Tile>> {
             let tile_idx = s.tiles[y as usize][x as usize];
             let flip = s.flips[y as usize][x as usize];
             let tile = if let Some(&idx) = state.palettes_id_idx_map.get(&palette_id) {
-                flip.apply_to_tile(state.palettes[idx as usize].tiles[tile_idx as usize])
+                if (tile_idx as usize) < state.palettes[idx as usize].tiles.len() {
+                    flip.apply_to_tile(state.palettes[idx as usize].tiles[tile_idx as usize])
+                } else {
+                    Tile::default()
+                }
             } else {
                 Tile::default()
             };

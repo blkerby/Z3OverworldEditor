@@ -16,8 +16,7 @@ use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
     state::{
-        Area, AreaId, AreaPosition, ColorIdx, EditorState, Focus, Palette, PaletteId, TileBlock,
-        TileCoord, TileIdx, Tool,
+        Area, AreaId, AreaPosition, ColorIdx, EditorState, Focus, Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool
     },
 };
 
@@ -44,6 +43,7 @@ struct AreaGrid<'a> {
     identify_color: bool,
     color_idx: Option<ColorIdx>,
     tool: Tool,
+    snap_grid_16: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -65,12 +65,20 @@ fn clamped_position_in(
     bounds: iced::Rectangle,
     size: (u8, u8),
     pixel_size: f32,
+    snap_grid_16: bool,
 ) -> Point<TileCoord> {
     let x = f32::max(p.x - bounds.x - 1.0 - pixel_size / 2.0, 0.0) / (8.0 * pixel_size);
     let y = f32::max(p.y - bounds.y - 1.0 - pixel_size / 2.0, 0.0) / (8.0 * pixel_size);
-    Point {
-        x: (x as TileCoord).min(size.0 as TileCoord * 32 - 1),
-        y: (y as TileCoord).min(size.1 as TileCoord * 32 - 1),
+    if snap_grid_16 {
+        Point {
+            x: ((x / 2.0) as TileCoord * 2).min(size.0 as TileCoord * 32 - 2),
+            y: ((y / 2.0) as TileCoord * 2).min(size.1 as TileCoord * 32 - 2),
+        }
+    } else {
+        Point {
+            x: (x as TileCoord).min(size.0 as TileCoord * 32 - 1),
+            y: (y as TileCoord).min(size.1 as TileCoord * 32 - 1),
+        }
     }
 }
 
@@ -90,6 +98,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                 bounds,
                 self.area.size,
                 self.pixel_size,
+                self.snap_grid_16,
             ));
         } else {
             state.coords = None;
@@ -101,8 +110,13 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                         match (self.tool, btn) {
                             (Tool::Brush, mouse::Button::Left) => {
                                 state.action = InternalStateAction::Brushing;
-                                let coords =
-                                    clamped_position_in(p, bounds, self.area.size, self.pixel_size);
+                                let coords = clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.area.size,
+                                    self.pixel_size,
+                                    self.snap_grid_16,
+                                );
                                 return (
                                     canvas::event::Status::Captured,
                                     Some(Message::AreaBrush {
@@ -125,6 +139,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                             bounds,
                                             self.area.size,
                                             self.pixel_size,
+                                            self.snap_grid_16,
                                         ),
                                         crate::message::SelectionSource::Area(self.position),
                                     )),
@@ -139,7 +154,13 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                     state.action = InternalStateAction::None;
                     if state0.action == InternalStateAction::Selecting {
                         let coords = if let Some(p) = cursor.position() {
-                            clamped_position_in(p, bounds, self.area.size, self.pixel_size)
+                            clamped_position_in(
+                                p,
+                                bounds,
+                                self.area.size,
+                                self.pixel_size,
+                                self.snap_grid_16,
+                            )
                         } else if let Some(c) = self.end_coords {
                             Point::new(c.0, c.1)
                         } else {
@@ -162,14 +183,20 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     bounds,
                                     self.area.size,
                                     self.pixel_size,
+                                    self.snap_grid_16,
                                 ))),
                             );
                         }
                     }
                     InternalStateAction::Brushing => {
                         if let Some(p) = cursor.position() {
-                            let coords =
-                                clamped_position_in(p, bounds, self.area.size, self.pixel_size);
+                            let coords = clamped_position_in(
+                                p,
+                                bounds,
+                                self.area.size,
+                                self.pixel_size,
+                                self.snap_grid_16,
+                            );
                             return (
                                 canvas::event::Status::Captured,
                                 Some(Message::AreaBrush {
@@ -318,7 +345,13 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             } else {
                                 let tile_idx = self.tile_block.tiles[ty][tx];
                                 let flip = self.tile_block.flips[ty][tx];
-                                let t = self.palettes[palette_idx].tiles[tile_idx as usize];
+                                let t = if (tile_idx as usize)
+                                    < self.palettes[palette_idx].tiles.len()
+                                {
+                                    self.palettes[palette_idx].tiles[tile_idx as usize]
+                                } else {
+                                    Tile::default()
+                                };
                                 flip.apply_to_tile(t)
                             };
                             let cb = &color_bytes[palette_idx];
@@ -502,6 +535,11 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
         _ => {}
     }
 
+    if state.snap_grid_16 {
+        right += 1;
+        bottom += 1;
+    }
+
     Scrollable::with_direction(
         column![stack![
             canvas(AreaGrid {
@@ -521,6 +559,7 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
                 identify_color: state.identify_color,
                 color_idx: state.color_idx,
                 tool: state.tool,
+                snap_grid_16: state.snap_grid_16,
             })
             .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
             .height((num_rows as f32 * 8.0 + 2.0) * pixel_size),
@@ -533,7 +572,7 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
                 top,
                 bottom,
                 pixel_size,
-                show_grid: state.show_grid,
+                show_grid: state.show_grid_16,
                 grid_alpha: state.global_config.grid_alpha,
             })
             .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
