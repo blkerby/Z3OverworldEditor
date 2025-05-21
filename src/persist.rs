@@ -16,7 +16,8 @@ use serde_json::Serializer;
 use crate::{
     helpers::scale_color,
     state::{
-        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId, AreaPosition, EditorState, Flip, Palette, PaletteId, TileIdx
+        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId,
+        AreaPosition, EditorState, Flip, Palette, PaletteId, TileIdx,
     },
     update::update_palette_order,
 };
@@ -429,7 +430,8 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
                 area: area_name.clone(),
                 theme: theme_name.clone(),
             };
-            let area = load_area(state, &area_id)?;
+            let area =
+                load_area(state, &area_id).context(format!("Error loading {:?}", area_id))?;
             for y in 0..area.size.1 as u16 * 32 {
                 for x in 0..area.size.0 as u16 * 32 {
                     let pal = area.get_palette(x, y).unwrap();
@@ -513,6 +515,9 @@ impl EventHandler for FileModificationHandler {
 }
 
 pub fn load_project(state: &mut EditorState) -> Result<()> {
+    if state.global_config.project_dir.is_none() {
+        bail!("Project directory not set");
+    }
     if !state.global_config.project_dir.as_ref().unwrap().exists() {
         bail!(
             "Project directory does not exist: {}",

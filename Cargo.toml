@@ -3,6 +3,12 @@ name = "z3_overworld_editor"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+debug = true
+
+[profile.release.package."*"]
+debug = false
+
 [dependencies]
 iced = { version= "0.13.1", features = ["canvas", "svg", "smol", "image", "advanced", "lazy"] }
 iced_aw = { version = "0.12.0", default-features = false, features = ["number_input", "menu", "quad"] }

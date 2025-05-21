@@ -186,6 +186,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     self.snap_grid_16,
                                 ))),
                             );
+                        } else {
+                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
                         }
                     }
                     InternalStateAction::Selecting => {
@@ -200,6 +202,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     self.snap_grid_16,
                                 ))),
                             );
+                        } else {
+                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
                         }
                     }
                     InternalStateAction::Brushing => {
@@ -221,9 +225,14 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     palette_only: self.palette_only_brush,
                                 }),
                             );
+                        } else {
+                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
                         }
                     }
                 },
+                mouse::Event::CursorLeft => {
+                    return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                }
                 _ => {}
             },
             _ => {}

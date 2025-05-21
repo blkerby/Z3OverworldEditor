@@ -28,6 +28,9 @@ pub fn main() -> Result<()> {
     )
     .format_timestamp_millis()
     .init();
+
+    std::env::set_var("RUST_BACKTRACE", "1");
+
     let editor_state = state::get_initial_state()?;
     let initial_task = match &editor_state.global_config.project_dir {
         None => Task::perform(view::open_project(), Message::ProjectOpened),

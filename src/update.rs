@@ -862,20 +862,21 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         let mut tile = s[y as usize][x as usize];
                         if let Some(t) = tile_block {
                             let src_pal_id = t.palettes[y][x];
-                            if src_pal_id == palette_id {
-                                continue;
-                            }
-                            let src_pal_idx = state.palettes_id_idx_map[&src_pal_id];
-                            let src_pal = &state.palettes[src_pal_idx];
-                            for py in 0..8 {
-                                for px in 0..8 {
-                                    let src_color_idx = tile.pixels[py][px] as usize;
-                                    if src_color_idx == 0 {
-                                        continue;
-                                    }
-                                    let color = src_pal.colors[src_color_idx];
-                                    if let Some(&color_idx) = color_map.get(&color) {
-                                        tile.pixels[py][px] = color_idx;
+                            if src_pal_id != palette_id {
+                                let src_pal_idx = state.palettes_id_idx_map[&src_pal_id];
+                                let src_pal = &state.palettes[src_pal_idx];
+                                for py in 0..8 {
+                                    for px in 0..8 {
+                                        let src_color_idx = tile.pixels[py][px] as usize;
+                                        if src_color_idx == 0 {
+                                            continue;
+                                        }
+                                        let color = src_pal.colors[src_color_idx];
+                                        if let Some(&color_idx) = color_map.get(&color) {
+                                            tile.pixels[py][px] = color_idx;
+                                        } else {
+                                            tile.pixels[py][px] = 15;
+                                        }
                                     }
                                 }
                             }
@@ -1230,17 +1231,19 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         Message::HoverArea(p) => {
             state.hover_coords = Some((p.x, p.y));
         }
+        Message::HoverAreaEnd => {
+            state.hover_coords = None;
+        }
         &Message::StartTileSelection(p, source) => {
             state.selection_source = source;
             state.start_coords = Some((p.x, p.y));
             state.end_coords = Some((p.x, p.y));
+            state.hover_coords = None;
         }
         Message::ProgressTileSelection(p) => {
             state.end_coords = Some((p.x, p.y));
-            state.hover_coords = Some((p.x, p.y));
         }
         Message::EndTileSelection(p1) => {
-            state.hover_coords = Some((p1.x, p1.y));
             let p1 = (p1.x, p1.y);
             let Some(p0) = state.start_coords else {
                 return Ok(None);

@@ -53,7 +53,7 @@ pub struct Palette {
     pub tiles: Vec<Tile>,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GlobalConfig {
     #[serde(skip_serializing, skip_deserializing)]
     pub modified: bool,
@@ -73,6 +73,17 @@ fn default_pixel_size() -> f32 {
 
 fn default_grid_alpha() -> f32 {
     0.1
+}
+
+impl Default for GlobalConfig {
+    fn default() -> Self {
+        Self {
+            modified: true,
+            project_dir: None,
+            pixel_size: default_pixel_size(),
+            grid_alpha: default_grid_alpha(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Serialize_repr, Deserialize_repr, Default, Debug, PartialEq, Eq)]
