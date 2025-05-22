@@ -321,7 +321,8 @@ pub fn used_palettes_view(state: &EditorState) -> Element<Message> {
         };
         let mut row: Row<Message> = Row::new();
         let pal = &state.palettes[palette_idx as usize];
-        row = row.push(text(pal.name.clone()).width(110));
+        row = row.push(text(pal.name.clone()).width(125));
+        row = row.push(Space::with_width(5));
 
         let size = 18.0;
         for i in 0..16 {

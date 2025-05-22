@@ -275,7 +275,7 @@ pub fn view(state: &EditorState) -> Element<Message> {
                 move |size| column![tile_view(state, size, 260.0), graphics_view(state)].into()
             )
         ]
-        .width(420)
+        .width(440)
         .into(),
         SidePanelView::Area => column![
             side_area_controls(state),
@@ -283,7 +283,7 @@ pub fn view(state: &EditorState) -> Element<Message> {
         ]
         .padding(10)
         .spacing(10)
-        .width(420)
+        .width(440)
         .into(),
     };
 

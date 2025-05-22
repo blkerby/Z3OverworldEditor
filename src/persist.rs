@@ -145,13 +145,32 @@ fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
     Ok(())
 }
 
-fn save_palettes(state: &mut EditorState) -> Result<()> {
+pub fn clear_pngs(state: &EditorState) -> Result<()> {
+    let project_dir = state
+        .global_config
+        .project_dir
+        .as_ref()
+        .unwrap()
+        .to_str()
+        .unwrap();
+    for path in glob::glob(&format!("{}/**/*.png", project_dir))? {
+        let path = path?;
+        info!("Removing file {}", path.to_str().unwrap());
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+pub fn save_palettes(state: &mut EditorState) -> Result<()> {
     let pal_dir = get_palette_dir(state)?;
     state.disable_watch_file_changes()?;
     for pal in &mut state.palettes {
         if pal.modified {
             let pal_json_filename = format!("{}.json", pal.name);
             let pal_json_path = pal_dir.join(pal_json_filename);
+            for i in 0..pal.tiles.len() {
+                pal.tiles[i].id = Some(i as TileIdx);
+            }
             save_json(&pal_json_path, pal)?;
 
             let pal_colors_png_filename = format!("{}-colors.png", pal.name);

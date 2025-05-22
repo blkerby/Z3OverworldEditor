@@ -1,16 +1,12 @@
 Some features still needed:
 - when closing/opening editor, remember which areas were open.
-- watch files and prompt to reload
 - import animated tiles
-- Swap tiles (within and between palettes), updating area data
-- Ctrl-R to rebuild all the PNG (in case palette was changed, which could affect everything).
-- Way to open a second area/scratch in side panel (instead of palette/tileset editor)
 - overlays
 - World editor
 - Export to ROM
 - add status bar to show cursor position & tile info? (e.g. palette, tile number, collision type, flip)
   - right clicking can show most of this info, but for a broken palette it won't be available.
-- show preview of brush onto tileset
+- show preview of brush onto tileset (and hover)
 
 Bugs to fix:
 - pixel brush loses mouse release when OOB

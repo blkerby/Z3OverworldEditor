@@ -785,6 +785,7 @@ impl<'a> Importer<'a> {
         fn strip_tile(mut tile: Tile) -> Tile {
             // We clear these fields when looking up matching tiles, since these
             // fields will vary over the course of processing.
+            tile.id = None;
             tile.h_flippable = false;
             tile.v_flippable = false;
             tile
@@ -921,6 +922,7 @@ impl<'a> Importer<'a> {
                                     let pixels =
                                         t8.flip.apply_to_pixels(self.tiles8[tiles8_idx as usize]);
                                     let tile = Tile {
+                                        id: None,
                                         priority: t8.priority,
                                         h_flippable: false,
                                         v_flippable: false,

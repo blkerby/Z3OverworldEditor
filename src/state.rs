@@ -35,6 +35,7 @@ pub struct AreaId {
 
 #[derive(Copy, Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, Hash)]
 pub struct Tile {
+    pub id: Option<TileIdx>,
     pub priority: bool,
     pub collision: CollisionType,
     pub h_flippable: bool,
@@ -547,6 +548,7 @@ pub fn ensure_palettes_non_empty(state: &mut EditorState) {
         pal.name = "Default".to_string();
         pal.tiles = vec![
             Tile {
+                id: None,
                 priority: false,
                 collision: 0,
                 h_flippable: true,

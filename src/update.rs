@@ -10,8 +10,9 @@ use crate::{
     import::Importer,
     message::{Message, SelectionSource},
     persist::{
-        self, copy_area_theme, delete_area, delete_area_theme, delete_palette, load_area_list,
-        remap_tiles, rename_area, rename_area_theme, save_area, save_area_png, scan_used_tiles,
+        self, clear_pngs, copy_area_theme, delete_area, delete_area_theme, delete_palette,
+        load_area_list, remap_tiles, rename_area, rename_area_theme, save_area, save_area_png,
+        save_palettes, scan_used_tiles,
     },
     state::{
         Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, EditorState, Flip, Focus,
@@ -486,7 +487,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         Message::RebuildProject => {
             // Save all area PNGs (which could be out-of-date, e.g. if a palette were updated or a new theme created)
+            // Also save all palettes.
             state.disable_watch_file_changes()?;
+            clear_pngs(state)?;
             for theme in &state.theme_names.clone() {
                 for area_name in &state.area_names.clone() {
                     let area_id = AreaId {
@@ -502,6 +505,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     }
                 }
             }
+            for pal in &mut state.palettes {
+                pal.modified = true;
+            }
+            save_palettes(state)?;
             state.enable_watch_file_changes()?;
             state.dialogue = None;
         }
@@ -682,6 +689,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
             }
             update_palette_order(state);
+            state.tile_idx = None;
+            state.color_idx = None;
             state.dialogue = None;
         }
         Message::RestorePalette(palette) => {
@@ -689,6 +698,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             pal.modified = true;
             state.palettes.push(pal);
             state.palette_idx = state.palettes.len() - 1;
+            state.tile_idx = None;
+            state.color_idx = None;
             update_palette_order(state);
         }
         Message::HideModal => {
@@ -1340,6 +1351,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             tile_idx,
         } => {
             if let Some(&palette_idx) = state.palettes_id_idx_map.get(&palette_id) {
+                if palette_idx != state.palette_idx {
+                    state.color_idx = None;
+                }
                 state.palette_idx = palette_idx;
                 state.tile_idx = Some(tile_idx);
             }
