@@ -687,7 +687,7 @@ pub fn side_area_controls(state: &EditorState) -> Element<Message> {
         .width(200),
         pick_list(
             state.theme_names.clone(),
-            Some(state.main_area().theme.clone()),
+            Some(state.side_area().theme.clone()),
             |x| Message::SelectTheme(AreaPosition::Side, x)
         )
         .on_open(Message::Focus(Focus::PickTheme(AreaPosition::Side)))

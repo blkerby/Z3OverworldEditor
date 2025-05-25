@@ -1,4 +1,5 @@
 Some features still needed:
+- fix BG color import with vanilla-type ROM
 - when closing/opening editor, remember which areas were open.
 - import animated tiles
 - overlays

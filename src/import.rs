@@ -839,9 +839,10 @@ impl<'a> Importer<'a> {
                 ]
             } else {
                 match parent {
-                    0x40..0x80 => [18, 17, 10],       // dark world
-                    0x80 | 0x82 | 0x83 => [6, 14, 6], // dark green background (Special World)
-                    _ => [9, 19, 9],                  // default green background
+                    0x03 | 0x05 | 0x07 | 0x43 | 0x45 | 0x47 => [0, 0, 0], // Death mountain: black background
+                    0x80 | 0x81 => [6, 14, 6], // Special World: dark green background
+                    0x40..0x80 => [18, 17, 10], // Dark world: tan background
+                    _ => [9, 19, 9],           // Default: green background
                 }
             };
 
