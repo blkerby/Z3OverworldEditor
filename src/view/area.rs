@@ -187,7 +187,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 ))),
                             );
                         } else {
-                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                            return (canvas::event::Status::Ignored, None);
                         }
                     }
                     InternalStateAction::Selecting => {
@@ -503,6 +503,7 @@ impl canvas::Program<Message> for AreaSelect {
                 },
             );
         }
+
         if self.selecting_active {
             let x0 = self.left as f32 * pixel_size_x * 8.0 + pixel_size_x / 2.0;
             let x1 = (self.right + 1) as f32 * pixel_size_x * 8.0 + pixel_size_x / 2.0;
