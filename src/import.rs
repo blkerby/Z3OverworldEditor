@@ -11,11 +11,71 @@ use std::{
 use crate::{
     persist::{load_area, load_project, save_area_json, save_area_png, save_project},
     state::{
-        Area, AreaId, AreaName, ColorRGB, ColorValue, EditorState, Flip, Palette, PaletteId,
-        Screen, Tile, TileIdx,
+        AnimatedTileGroup, Area, AreaId, AreaName, ColorRGB, ColorValue, EditorState, Flip,
+        Palette, PaletteId, Screen, Tile, TileIdx, TilePixels,
     },
     update::update_palette_order,
 };
+
+const ANIMATED_TILE_START: u16 = 0x1C0;
+const ANIMATED_TILE_COUNT: u16 = 32;
+
+fn animated_tile_slot(gfx_char: u16) -> Option<u16> {
+    gfx_char
+        .checked_sub(ANIMATED_TILE_START)
+        .filter(|&slot| slot < ANIMATED_TILE_COUNT)
+}
+
+fn add_vanilla_animated_tile_groups(palette: &mut Palette) -> TileIdx {
+    palette
+        .tiles
+        .resize(palette.tiles.len().div_ceil(16) * 16, Tile::default());
+    let base_tile = palette.tiles.len() as TileIdx;
+    palette.tiles.resize(
+        palette.tiles.len() + ANIMATED_TILE_COUNT as usize,
+        Tile::default(),
+    );
+
+    for row in 0..2 {
+        palette.animated_tile_groups.push(AnimatedTileGroup {
+            base_tile: base_tile + row as TileIdx * 16,
+            frames: vec![[TilePixels::default(); 16]; 2],
+            frame_hold: 9,
+            phase_offset: 0,
+        });
+    }
+
+    base_tile
+}
+
+fn set_vanilla_animated_tile(
+    palette: &mut Palette,
+    tiles8: &[TilePixels],
+    tile_types: &[u8],
+    base_sheet: u16,
+    base_tile: TileIdx,
+    slot: u16,
+    priority: bool,
+) {
+    let slot = slot as usize;
+    palette.tiles[base_tile as usize + slot] = Tile {
+        priority,
+        collision: tile_types[ANIMATED_TILE_START as usize + slot],
+        pixels: tiles8[base_sheet as usize * 64 + slot],
+        ..Tile::default()
+    };
+
+    let group_base = base_tile + (slot / 16 * 16) as TileIdx;
+    let group = palette
+        .animated_tile_groups
+        .iter_mut()
+        .find(|group| group.base_tile == group_base)
+        .unwrap();
+    let column = slot % 16;
+    let frame_start = (base_sheet - 1) as usize * 64 + slot;
+    group.frames[0][column] = tiles8[frame_start];
+    group.frames[1][column] = tiles8[frame_start + 32];
+}
 
 // From past experience, it's a very common mistake to mix up SNES addresses
 // with "PC" addresses (byte index into the ROM file). So we use type-safe wrappers
@@ -782,6 +842,8 @@ impl<'a> Importer<'a> {
 
         let mut tile_lookup: Vec<HashMap<Tile, (TileIdx, Flip)>> =
             vec![HashMap::new(); self.state.palettes.len()];
+        let mut animated_groups: HashMap<(usize, u16), TileIdx> = HashMap::new();
+        let mut animated_priorities: HashMap<(usize, u16, u16), bool> = HashMap::new();
 
         fn strip_tile(mut tile: Tile) -> Tile {
             // We clear these fields when looking up matching tiles, since these
@@ -920,35 +982,81 @@ impl<'a> Importer<'a> {
                                     };
                                     let palette_idx = self.state.palettes_id_idx_map[&pal_id];
                                     let collision = self.tile_types[t8.gfx_char as usize];
-                                    let pixels =
-                                        t8.flip.apply_to_pixels(self.tiles8[tiles8_idx as usize]);
-                                    let tile = Tile {
-                                        id: None,
-                                        priority: t8.priority,
-                                        h_flippable: false,
-                                        v_flippable: false,
-                                        collision,
-                                        pixels,
-                                    };
-                                    let (tile_idx, flip) = match tile_lookup[palette_idx].get(&tile)
+                                    let (tile_idx, flip) = if let Some(slot) =
+                                        animated_tile_slot(t8.gfx_char)
                                     {
-                                        Some(x) => *x,
-                                        None => {
-                                            let idx = self.state.palettes[palette_idx].tiles.len()
-                                                as TileIdx;
-                                            self.state.palettes[palette_idx].tiles.push(tile);
-                                            for flip in [
-                                                Flip::None,
-                                                Flip::Horizontal,
-                                                Flip::Vertical,
-                                                Flip::Both,
-                                            ] {
-                                                tile_lookup[palette_idx].insert(
-                                                    strip_tile(flip.apply_to_tile(tile)),
-                                                    (idx, flip),
+                                        let key = (palette_idx, animated_gfx);
+                                        let base_tile = match animated_groups.get(&key) {
+                                            Some(&base_tile) => base_tile,
+                                            None => {
+                                                let base_tile = add_vanilla_animated_tile_groups(
+                                                    &mut self.state.palettes[palette_idx],
+                                                );
+                                                animated_groups.insert(key, base_tile);
+                                                base_tile
+                                            }
+                                        };
+                                        let tile_idx = base_tile + slot;
+                                        match animated_priorities.entry((
+                                            palette_idx,
+                                            animated_gfx,
+                                            slot,
+                                        )) {
+                                            Entry::Vacant(entry) => {
+                                                entry.insert(t8.priority);
+                                                set_vanilla_animated_tile(
+                                                    &mut self.state.palettes[palette_idx],
+                                                    &self.tiles8,
+                                                    &self.tile_types,
+                                                    animated_gfx,
+                                                    base_tile,
+                                                    slot,
+                                                    t8.priority,
                                                 );
                                             }
-                                            (idx, Flip::None)
+                                            Entry::Occupied(entry)
+                                                if *entry.get() != t8.priority =>
+                                            {
+                                                warn!(
+                                                    "Conflicting priority for animated tile ${:03X} in palette {}; keeping the first value",
+                                                    t8.gfx_char, pal_id
+                                                );
+                                            }
+                                            Entry::Occupied(_) => {}
+                                        }
+                                        (tile_idx, t8.flip)
+                                    } else {
+                                        let pixels = t8
+                                            .flip
+                                            .apply_to_pixels(self.tiles8[tiles8_idx as usize]);
+                                        let tile = Tile {
+                                            id: None,
+                                            priority: t8.priority,
+                                            h_flippable: false,
+                                            v_flippable: false,
+                                            collision,
+                                            pixels,
+                                        };
+                                        match tile_lookup[palette_idx].get(&tile) {
+                                            Some(x) => *x,
+                                            None => {
+                                                let idx =
+                                                    self.state.palettes[palette_idx].tiles.len()
+                                                        as TileIdx;
+                                                self.state.palettes[palette_idx].tiles.push(tile);
+                                                for flip in [
+                                                    Flip::None,
+                                                    Flip::Horizontal,
+                                                    Flip::Vertical,
+                                                    Flip::Both,
+                                                ] {
+                                                    tile_lookup[palette_idx].insert(
+                                                        strip_tile(flip.apply_to_tile(tile)),
+                                                        (idx, flip),
+                                                    );
+                                                }
+                                                (idx, Flip::None)
+                                            }
                                         }
                                     };
 
