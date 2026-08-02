@@ -510,13 +510,13 @@ impl<'a> Importer<'a> {
 
             for j in 0..64 {
                 let mut tile: [[u8; 8]; 8] = [[0; 8]; 8];
-                for y in 0..8 {
-                    for x in 0..8 {
+                for (y, row) in tile.iter_mut().enumerate() {
+                    for (x, pixel) in row.iter_mut().enumerate() {
                         let c0 = (data[j * 24 + y * 2] >> (7 - x)) & 1;
                         let c1 = (data[j * 24 + y * 2 + 1] >> (7 - x)) & 1;
                         let c2 = (data[j * 24 + y + 16] >> (7 - x)) & 1;
                         let c = c0 | (c1 << 1) | (c2 << 2);
-                        tile[y][x] = c;
+                        *pixel = c;
                     }
                 }
                 self.tiles8.push(tile);
@@ -603,8 +603,8 @@ impl<'a> Importer<'a> {
             ensure!(low_data.len() == 256);
 
             let mut block: [[Tile32Idx; 16]; 16] = [[0; 16]; 16];
-            for y in 0..16 {
-                for x in 0..16 {
+            for (y, row) in block.iter_mut().enumerate() {
+                for (x, tile) in row.iter_mut().enumerate() {
                     let j = y * 16 + x;
                     let mut tile32_idx = (high_data[j] as u16) << 8 | low_data[j] as u16;
                     if (tile32_idx as u32) >= self.constants.tiles32_cnt {
@@ -616,7 +616,7 @@ impl<'a> Importer<'a> {
                         tile32_idx = 0;
                     }
 
-                    block[y][x] = tile32_idx;
+                    *tile = tile32_idx;
                 }
             }
             self.map_tiles.push(block);
@@ -791,10 +791,10 @@ impl<'a> Importer<'a> {
             tile
         }
 
-        for palette_idx in 0..self.state.palettes.len() {
-            for (idx, tile) in self.state.palettes[palette_idx].tiles.iter().enumerate() {
+        for (palette, lookup) in self.state.palettes.iter().zip(&mut tile_lookup) {
+            for (idx, tile) in palette.tiles.iter().enumerate() {
                 for flip in [Flip::None, Flip::Horizontal, Flip::Vertical, Flip::Both] {
-                    tile_lookup[palette_idx].insert(
+                    lookup.insert(
                         strip_tile(flip.apply_to_tile(*tile)),
                         (idx as TileIdx, flip),
                     );
@@ -879,9 +879,8 @@ impl<'a> Importer<'a> {
                 for mx in 0..size.0 as usize {
                     let map_idx = parent + my * 8 + mx;
                     let tiles = &self.map_tiles[map_idx];
-                    for ty in 0..16 {
-                        for tx in 0..16 {
-                            let t32_idx = tiles[ty][tx];
+                    for (ty, row) in tiles.iter().enumerate() {
+                        for (tx, &t32_idx) in row.iter().enumerate() {
                             let t32 = self.tiles32[t32_idx as usize];
                             for i in 0..4 {
                                 let t16_idx = t32[i];

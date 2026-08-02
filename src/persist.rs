@@ -78,9 +78,9 @@ fn save_palette_colors_png(png_path: &Path, palette: &Palette) -> Result<()> {
 
     let mut data: Vec<u8> = vec![];
     for _y in 0..pixel_size {
-        for c in 0..16 {
+        for color in color_bytes.iter() {
             for _ in 0..pixel_size {
-                data.extend(color_bytes[c]);
+                data.extend(color);
             }
         }
     }

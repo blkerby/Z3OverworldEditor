@@ -694,9 +694,9 @@ pub fn side_area_controls(state: &EditorState) -> Element<'_, Message> {
     .into()
 }
 
-pub fn add_area_view(name: &String, size: (u8, u8)) -> Element<'_, Message> {
+pub fn add_area_view(name: &str, size: (u8, u8)) -> Element<'_, Message> {
     let add_area_msg = Message::AddArea {
-        name: name.clone(),
+        name: name.to_owned(),
         size,
     };
     container(
@@ -735,12 +735,12 @@ pub fn add_area_view(name: &String, size: (u8, u8)) -> Element<'_, Message> {
     .into()
 }
 
-pub fn edit_area_view(state: &EditorState, name: &String) -> Element<'static, Message> {
+pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Message> {
     let old_name = state.main_area().name.clone();
     let rgb_width = 80;
     let edit_area_msg = Message::EditArea {
         old_name: old_name.clone(),
-        new_name: name.clone(),
+        new_name: name.to_owned(),
     };
     container(
         column![
@@ -817,7 +817,7 @@ pub fn delete_area_view(state: &EditorState) -> Element<'_, Message> {
     .into()
 }
 
-pub fn add_theme_view(name: &String) -> Element<'_, Message> {
+pub fn add_theme_view(name: &str) -> Element<'_, Message> {
     container(
         column![
             text("Add a new theme."),
@@ -826,13 +826,13 @@ pub fn add_theme_view(name: &String) -> Element<'_, Message> {
                 text_input("", name)
                     .id("AddTheme")
                     .on_input(Message::SetAddThemeName)
-                    .on_submit(Message::AddTheme(name.clone()))
+                    .on_submit(Message::AddTheme(name.to_owned()))
             ]
             .spacing(10)
             .align_y(Vertical::Center),
             button(text("Add theme"))
                 .style(button::success)
-                .on_press(Message::AddTheme(name.clone())),
+                .on_press(Message::AddTheme(name.to_owned())),
         ]
         .spacing(10),
     )
@@ -842,11 +842,11 @@ pub fn add_theme_view(name: &String) -> Element<'_, Message> {
     .into()
 }
 
-pub fn rename_theme_view(state: &EditorState, name: &String) -> Element<'static, Message> {
+pub fn rename_theme_view(state: &EditorState, name: &str) -> Element<'static, Message> {
     let old_name = state.main_area().theme.clone();
     let rename_msg = Message::RenameTheme {
         old_name: old_name.clone(),
-        new_name: name.clone(),
+        new_name: name.to_owned(),
     };
     container(
         column![

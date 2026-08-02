@@ -46,8 +46,7 @@ impl canvas::Program<Message> for ColorBox {
         };
 
         match event {
-            canvas::Event::Mouse(mouse_event) => match mouse_event {
-                mouse::Event::ButtonPressed(button) => {
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(button)) => {
                     let message = match button {
                         mouse::Button::Left => {
                             if self.tool == Tool::Brush {
@@ -66,8 +65,6 @@ impl canvas::Program<Message> for ColorBox {
 
                     (canvas::event::Status::Captured, message)
                 }
-                _ => (canvas::event::Status::Ignored, None),
-            },
             _ => (canvas::event::Status::Ignored, None),
         }
     }
@@ -213,7 +210,7 @@ pub fn selected_palette_view(state: &EditorState) -> Element<'_, Message> {
     row![col].padding(10).into()
 }
 
-pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
+pub fn add_palette_view(name: &str, id: PaletteId) -> Element<'_, Message> {
     container(
         column![
             text("Select a name and ID for the new palette"),
@@ -223,7 +220,7 @@ pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
                     .id("AddPalette")
                     .on_input(Message::SetAddPaletteName)
                     .on_submit(Message::AddPalette {
-                        name: name.clone(),
+                        name: name.to_owned(),
                         id
                     })
             ]
@@ -234,7 +231,7 @@ pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
                 number_input(&id, 0..=255, Message::SetAddPaletteID)
                     .width(50)
                     .on_submit(Message::AddPalette {
-                        name: name.clone(),
+                        name: name.to_owned(),
                         id
                     }),
             ]
@@ -243,7 +240,7 @@ pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
             button(text("Add palette"))
                 .style(button::success)
                 .on_press(Message::AddPalette {
-                    name: name.clone(),
+                    name: name.to_owned(),
                     id
                 }),
         ]
@@ -255,12 +252,12 @@ pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
     .into()
 }
 
-pub fn rename_palette_view(state: &EditorState, name: &String) -> Element<'static, Message> {
+pub fn rename_palette_view(state: &EditorState, name: &str) -> Element<'static, Message> {
     let idx = state.palette_idx;
     let old_name = &state.palettes[idx].name;
     let rename_msg = Message::RenamePalette {
         id: state.palettes[idx].id,
-        name: name.clone(),
+        name: name.to_owned(),
     };
     container(
         column![

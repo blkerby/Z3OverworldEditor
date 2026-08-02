@@ -852,13 +852,13 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     color_map.insert(c, i as ColorIdx);
                 }
             }
-            for y in 0..s.len() {
-                for x in 0..s[0].len() {
+            for (y, row) in s.iter().enumerate() {
+                for (x, &source_tile) in row.iter().enumerate() {
                     let y1 = y + y0 as usize;
                     let x1 = x + x0 as usize;
                     let i = y1 * 16 + x1;
                     if x1 < 16 && i < state.palettes[pal_idx].tiles.len() {
-                        let mut tile = s[{ y }][x];
+                        let mut tile = source_tile;
                         if let Some(t) = tile_block {
                             let src_pal_id = t.palettes[y][x];
                             if src_pal_id != palette_id {

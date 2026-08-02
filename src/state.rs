@@ -521,10 +521,12 @@ pub fn ensure_themes_non_empty(state: &mut EditorState) {
 pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
     if state.area_names.is_empty() {
         state.area_names.push("Example".to_string());
-        let mut area = Area::default();
-        area.name = "Example".to_string();
-        area.theme = "Base".to_string();
-        area.size = (2, 2);
+        let mut area = Area {
+            name: "Example".to_string(),
+            theme: "Base".to_string(),
+            size: (2, 2),
+            ..Area::default()
+        };
         for y in 0..2 {
             for x in 0..2 {
                 area.screens.push(Screen {
@@ -543,20 +545,22 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
 
 pub fn ensure_palettes_non_empty(state: &mut EditorState) {
     if state.palettes.is_empty() {
-        let mut pal = Palette::default();
-        pal.modified = true;
-        pal.name = "Default".to_string();
-        pal.tiles = vec![
-            Tile {
-                id: None,
-                priority: false,
-                collision: 0,
-                h_flippable: true,
-                v_flippable: true,
-                pixels: [[0; 8]; 8]
-            };
-            16
-        ];
+        let pal = Palette {
+            modified: true,
+            name: "Default".to_string(),
+            tiles: vec![
+                Tile {
+                    id: None,
+                    priority: false,
+                    collision: 0,
+                    h_flippable: true,
+                    v_flippable: true,
+                    pixels: [[0; 8]; 8]
+                };
+                16
+            ],
+            ..Palette::default()
+        };
         state.palettes.push(pal);
     }
 }
