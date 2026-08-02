@@ -137,7 +137,7 @@ impl canvas::Program<Message> for ColorBox {
     }
 }
 
-pub fn selected_palette_view(state: &EditorState) -> Element<Message> {
+pub fn selected_palette_view(state: &EditorState) -> Element<'_, Message> {
     let palette_names: Vec<String> = state
         .palettes
         .iter()
@@ -213,7 +213,7 @@ pub fn selected_palette_view(state: &EditorState) -> Element<Message> {
     row![col].padding(10).into()
 }
 
-pub fn add_palette_view(name: &String, id: PaletteId) -> Element<Message> {
+pub fn add_palette_view(name: &String, id: PaletteId) -> Element<'_, Message> {
     container(
         column![
             text("Select a name and ID for the new palette"),
@@ -289,7 +289,7 @@ pub fn rename_palette_view(state: &EditorState, name: &String) -> Element<'stati
     .into()
 }
 
-pub fn delete_palette_view(state: &EditorState) -> Element<Message> {
+pub fn delete_palette_view(state: &EditorState) -> Element<'_, Message> {
     let idx = state.palette_idx;
     let name = &state.palettes[idx].name;
     container(
@@ -311,7 +311,7 @@ pub fn delete_palette_view(state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn used_palettes_view(state: &EditorState) -> Element<Message> {
+pub fn used_palettes_view(state: &EditorState) -> Element<'_, Message> {
     let mut col: Column<Message> = Column::new();
     let palette_ids = state.main_area().get_unique_palettes();
     for pal_id in palette_ids {
@@ -320,7 +320,7 @@ pub fn used_palettes_view(state: &EditorState) -> Element<Message> {
             continue;
         };
         let mut row: Row<Message> = Row::new();
-        let pal = &state.palettes[palette_idx as usize];
+        let pal = &state.palettes[palette_idx];
         row = row.push(text(pal.name.clone()).width(125));
         row = row.push(Space::with_width(5));
 

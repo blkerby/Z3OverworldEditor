@@ -306,7 +306,7 @@ impl Rom {
             (addr.0 as usize) < self.data.len(),
             "read_u8 address out of bounds"
         );
-        Ok(self.data[addr.0 as usize] as u8)
+        Ok(self.data[addr.0 as usize])
     }
 
     pub fn read_u16(&self, addr: PcAddr) -> Result<u16> {
@@ -795,7 +795,7 @@ impl<'a> Importer<'a> {
             for (idx, tile) in self.state.palettes[palette_idx].tiles.iter().enumerate() {
                 for flip in [Flip::None, Flip::Horizontal, Flip::Vertical, Flip::Both] {
                     tile_lookup[palette_idx].insert(
-                        strip_tile(flip.apply_to_tile(tile.clone())),
+                        strip_tile(flip.apply_to_tile(*tile)),
                         (idx as TileIdx, flip),
                     );
                 }
@@ -877,7 +877,7 @@ impl<'a> Importer<'a> {
             }
             for my in 0..size.1 as usize {
                 for mx in 0..size.0 as usize {
-                    let map_idx = parent + my as usize * 8 + mx as usize;
+                    let map_idx = parent + my * 8 + mx;
                     let tiles = &self.map_tiles[map_idx];
                     for ty in 0..16 {
                         for tx in 0..16 {
@@ -944,7 +944,7 @@ impl<'a> Importer<'a> {
                                                 Flip::Both,
                                             ] {
                                                 tile_lookup[palette_idx].insert(
-                                                    strip_tile(flip.apply_to_tile(tile.clone())),
+                                                    strip_tile(flip.apply_to_tile(tile)),
                                                     (idx, flip),
                                                 );
                                             }
@@ -974,7 +974,7 @@ impl<'a> Importer<'a> {
                                         }
                                     }
 
-                                    area.set_tile(x as u16, y as u16, tile_idx as u16).unwrap();
+                                    area.set_tile(x as u16, y as u16, tile_idx).unwrap();
                                     area.set_palette(x as u16, y as u16, pal_id).unwrap();
                                     area.set_flip(x as u16, y as u16, flip).unwrap();
 
@@ -1004,7 +1004,7 @@ impl<'a> Importer<'a> {
 
     fn ensure_palette_full_rows(&mut self) -> Result<()> {
         for pal in &mut self.state.palettes {
-            let size = ((pal.tiles.len() + 15) / 16 * 16).max(16);
+            let size = (pal.tiles.len().div_ceil(16) * 16).max(16);
             pal.tiles.resize(size, Tile::default());
             pal.modified = true;
         }

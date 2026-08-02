@@ -104,110 +104,12 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         } else {
             state.coords = None;
         }
-        match event {
-            canvas::Event::Mouse(mouse_event) => match mouse_event {
-                mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
-                    if let Some(p) = cursor.position_over(bounds) {
-                        match (self.tool, btn) {
-                            (Tool::Brush, mouse::Button::Left) => {
-                                state.action = InternalStateAction::Brushing;
-                                let coords = clamped_position_in(
-                                    p,
-                                    bounds,
-                                    self.area.size,
-                                    self.pixel_size,
-                                    self.snap_grid_16,
-                                );
-                                return (
-                                    canvas::event::Status::Captured,
-                                    Some(Message::AreaBrush {
-                                        position: self.position,
-                                        area_id: self.area_id.clone(),
-                                        coords,
-                                        selection: self.tile_block.clone(),
-                                        palette_only: self.palette_only_brush,
-                                    }),
-                                );
-                            }
-                            (Tool::Select, mouse::Button::Left | mouse::Button::Right)
-                            | (Tool::Brush, mouse::Button::Right) => {
-                                state.action = InternalStateAction::Selecting;
-                                return (
-                                    canvas::event::Status::Captured,
-                                    Some(Message::StartTileSelection(
-                                        clamped_position_in(
-                                            p,
-                                            bounds,
-                                            self.area.size,
-                                            self.pixel_size,
-                                            self.snap_grid_16,
-                                        ),
-                                        crate::message::SelectionSource::Area(self.position),
-                                    )),
-                                );
-                            }
-                            _ => {}
-                        }
-                    };
-                }
-                mouse::Event::ButtonReleased(mouse::Button::Left | mouse::Button::Right) => {
-                    let state0 = *state;
-                    state.action = InternalStateAction::None;
-                    if state0.action == InternalStateAction::Selecting {
-                        let coords = if let Some(p) = cursor.position() {
-                            clamped_position_in(
-                                p,
-                                bounds,
-                                self.area.size,
-                                self.pixel_size,
-                                self.snap_grid_16,
-                            )
-                        } else if let Some(c) = self.end_coords {
-                            Point::new(c.0, c.1)
-                        } else {
-                            return (canvas::event::Status::Ignored, None);
-                        };
-                        return (
-                            canvas::event::Status::Captured,
-                            Some(Message::EndTileSelection(coords)),
-                        );
-                    }
-                }
-                mouse::Event::CursorMoved { .. } => match state.action {
-                    InternalStateAction::None => {
-                        if let Some(p) = cursor.position() {
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::HoverArea(clamped_position_in(
-                                    p,
-                                    bounds,
-                                    self.area.size,
-                                    self.pixel_size,
-                                    self.snap_grid_16,
-                                ))),
-                            );
-                        } else {
-                            return (canvas::event::Status::Ignored, None);
-                        }
-                    }
-                    InternalStateAction::Selecting => {
-                        if let Some(p) = cursor.position() {
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::ProgressTileSelection(clamped_position_in(
-                                    p,
-                                    bounds,
-                                    self.area.size,
-                                    self.pixel_size,
-                                    self.snap_grid_16,
-                                ))),
-                            );
-                        } else {
-                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
-                        }
-                    }
-                    InternalStateAction::Brushing => {
-                        if let Some(p) = cursor.position() {
+        if let canvas::Event::Mouse(mouse_event) = event { match mouse_event {
+            mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
+                if let Some(p) = cursor.position_over(bounds) {
+                    match (self.tool, btn) {
+                        (Tool::Brush, mouse::Button::Left) => {
+                            state.action = InternalStateAction::Brushing;
                             let coords = clamped_position_in(
                                 p,
                                 bounds,
@@ -225,18 +127,113 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     palette_only: self.palette_only_brush,
                                 }),
                             );
-                        } else {
-                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
                         }
+                        (Tool::Select, mouse::Button::Left | mouse::Button::Right)
+                        | (Tool::Brush, mouse::Button::Right) => {
+                            state.action = InternalStateAction::Selecting;
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::StartTileSelection(
+                                    clamped_position_in(
+                                        p,
+                                        bounds,
+                                        self.area.size,
+                                        self.pixel_size,
+                                        self.snap_grid_16,
+                                    ),
+                                    crate::message::SelectionSource::Area(self.position),
+                                )),
+                            );
+                        }
+                        _ => {}
                     }
-                },
-                mouse::Event::CursorLeft => {
-                    return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                };
+            }
+            mouse::Event::ButtonReleased(mouse::Button::Left | mouse::Button::Right) => {
+                let state0 = *state;
+                state.action = InternalStateAction::None;
+                if state0.action == InternalStateAction::Selecting {
+                    let coords = if let Some(p) = cursor.position() {
+                        clamped_position_in(
+                            p,
+                            bounds,
+                            self.area.size,
+                            self.pixel_size,
+                            self.snap_grid_16,
+                        )
+                    } else if let Some(c) = self.end_coords {
+                        Point::new(c.0, c.1)
+                    } else {
+                        return (canvas::event::Status::Ignored, None);
+                    };
+                    return (
+                        canvas::event::Status::Captured,
+                        Some(Message::EndTileSelection(coords)),
+                    );
                 }
-                _ => {}
+            }
+            mouse::Event::CursorMoved { .. } => match state.action {
+                InternalStateAction::None => {
+                    if let Some(p) = cursor.position() {
+                        return (
+                            canvas::event::Status::Captured,
+                            Some(Message::HoverArea(clamped_position_in(
+                                p,
+                                bounds,
+                                self.area.size,
+                                self.pixel_size,
+                                self.snap_grid_16,
+                            ))),
+                        );
+                    } else {
+                        return (canvas::event::Status::Ignored, None);
+                    }
+                }
+                InternalStateAction::Selecting => {
+                    if let Some(p) = cursor.position() {
+                        return (
+                            canvas::event::Status::Captured,
+                            Some(Message::ProgressTileSelection(clamped_position_in(
+                                p,
+                                bounds,
+                                self.area.size,
+                                self.pixel_size,
+                                self.snap_grid_16,
+                            ))),
+                        );
+                    } else {
+                        return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                    }
+                }
+                InternalStateAction::Brushing => {
+                    if let Some(p) = cursor.position() {
+                        let coords = clamped_position_in(
+                            p,
+                            bounds,
+                            self.area.size,
+                            self.pixel_size,
+                            self.snap_grid_16,
+                        );
+                        return (
+                            canvas::event::Status::Captured,
+                            Some(Message::AreaBrush {
+                                position: self.position,
+                                area_id: self.area_id.clone(),
+                                coords,
+                                selection: self.tile_block.clone(),
+                                palette_only: self.palette_only_brush,
+                            }),
+                        );
+                    } else {
+                        return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                    }
+                }
             },
+            mouse::Event::CursorLeft => {
+                return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+            }
             _ => {}
-        }
+        } }
         (canvas::event::Status::Ignored, None)
     }
 
@@ -252,7 +249,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         let mut color_bytes: Vec<Vec<[u8; 3]>> = vec![];
 
         for i in 0..self.palettes.len() {
-            let mut colors = self.palettes[i].colors.clone();
+            let mut colors = self.palettes[i].colors;
             colors[0] = self.area.bg_color;
             let cb = colors
                 .iter()
@@ -565,7 +562,7 @@ impl canvas::Program<Message> for AreaSelect {
     }
 }
 
-pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Message> {
+pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_, Message> {
     let area = state.area(position);
     let num_cols = area.size.1 * 32;
     let num_rows = area.size.0 * 32;
@@ -576,14 +573,11 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
     let mut top = 0;
     let mut bottom = 0;
 
-    match (state.start_coords, state.end_coords) {
-        (Some(p0), Some(p1)) => {
-            left = p0.0.min(p1.0);
-            right = p0.0.max(p1.0);
-            top = p0.1.min(p1.1);
-            bottom = p0.1.max(p1.1);
-        }
-        _ => {}
+    if let (Some(p0), Some(p1)) = (state.start_coords, state.end_coords) {
+        left = p0.0.min(p1.0);
+        right = p0.0.max(p1.0);
+        top = p0.1.min(p1.1);
+        bottom = p0.1.max(p1.1);
     }
 
     if state.snap_grid_16 {
@@ -596,7 +590,7 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
             canvas(AreaGrid {
                 position,
                 area_id: state.area_id(position).clone(),
-                area: &state.area(position),
+                area: state.area(position),
                 palettes: &state.palettes,
                 palettes_id_idx_map: &state.palettes_id_idx_map,
                 pixel_size,
@@ -642,7 +636,7 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<Me
     .into()
 }
 
-pub fn main_area_controls(state: &EditorState) -> Element<Message> {
+pub fn main_area_controls(state: &EditorState) -> Element<'_, Message> {
     row![
         text("Area"),
         pick_list(
@@ -677,7 +671,7 @@ pub fn main_area_controls(state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn side_area_controls(state: &EditorState) -> Element<Message> {
+pub fn side_area_controls(state: &EditorState) -> Element<'_, Message> {
     row![
         pick_list(
             state.area_names.clone(),
@@ -700,7 +694,7 @@ pub fn side_area_controls(state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn add_area_view(name: &String, size: (u8, u8)) -> Element<Message> {
+pub fn add_area_view(name: &String, size: (u8, u8)) -> Element<'_, Message> {
     let add_area_msg = Message::AddArea {
         name: name.clone(),
         size,
@@ -804,7 +798,7 @@ pub fn edit_area_view(state: &EditorState, name: &String) -> Element<'static, Me
     .into()
 }
 
-pub fn delete_area_view(state: &EditorState) -> Element<Message> {
+pub fn delete_area_view(state: &EditorState) -> Element<'_, Message> {
     let name = state.main_area().name.clone();
     container(
         column![
@@ -823,7 +817,7 @@ pub fn delete_area_view(state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn add_theme_view(name: &String) -> Element<Message> {
+pub fn add_theme_view(name: &String) -> Element<'_, Message> {
     container(
         column![
             text("Add a new theme."),
@@ -882,7 +876,7 @@ pub fn rename_theme_view(state: &EditorState, name: &String) -> Element<'static,
     .into()
 }
 
-pub fn delete_theme_view(state: &EditorState) -> Element<Message> {
+pub fn delete_theme_view(state: &EditorState) -> Element<'_, Message> {
     let theme = state.main_area().theme.clone();
     container(
         column![

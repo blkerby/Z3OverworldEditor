@@ -513,13 +513,13 @@ fn get_global_config_path() -> Result<PathBuf> {
 }
 
 pub fn ensure_themes_non_empty(state: &mut EditorState) {
-    if state.theme_names.len() == 0 {
+    if state.theme_names.is_empty() {
         state.theme_names.push("Base".to_string());
     }
 }
 
 pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
-    if state.area_names.len() == 0 {
+    if state.area_names.is_empty() {
         state.area_names.push("Example".to_string());
         let mut area = Area::default();
         area.name = "Example".to_string();
@@ -542,7 +542,7 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
 }
 
 pub fn ensure_palettes_non_empty(state: &mut EditorState) {
-    if state.palettes.len() == 0 {
+    if state.palettes.is_empty() {
         let mut pal = Palette::default();
         pal.modified = true;
         pal.name = "Default".to_string();

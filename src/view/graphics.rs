@@ -47,32 +47,29 @@ impl canvas::Program<Message> for GraphicsBox {
         };
 
         let mut click: bool = false;
-        match event {
-            canvas::Event::Mouse(mouse_event) => match mouse_event {
-                mouse::Event::ButtonPressed(mouse::Button::Left) => {
-                    state.clicking = true;
+        if let canvas::Event::Mouse(mouse_event) = event { match mouse_event {
+            mouse::Event::ButtonPressed(mouse::Button::Left) => {
+                state.clicking = true;
+                click = true;
+            }
+            mouse::Event::ButtonReleased(mouse::Button::Left) => {
+                state.clicking = false;
+            }
+            mouse::Event::CursorMoved { .. } => {
+                if state.clicking {
                     click = true;
                 }
-                mouse::Event::ButtonReleased(mouse::Button::Left) => {
-                    state.clicking = false;
-                }
-                mouse::Event::CursorMoved { .. } => {
-                    if state.clicking {
-                        click = true;
-                    }
-                }
-                mouse::Event::CursorLeft => {
-                    state.clicking = false;
-                }
-                _ => {}
-            },
+            }
+            mouse::Event::CursorLeft => {
+                state.clicking = false;
+            }
             _ => {}
-        }
+        } }
 
         if click {
             let y = (p.y / self.pixel_size) as i32;
             let x = (p.x / self.pixel_size) as i32;
-            if x < 0 || x >= 8 || y < 0 || y >= 8 {
+            if !(0..8).contains(&x) || !(0..8).contains(&y) {
                 return (canvas::event::Status::Ignored, None);
             }
             if self.tool == Tool::Brush {
@@ -86,7 +83,7 @@ impl canvas::Program<Message> for GraphicsBox {
                                 x: x as PixelCoord,
                                 y: y as PixelCoord,
                             },
-                            color_idx: color_idx,
+                            color_idx,
                         }),
                     );
                 }
@@ -171,7 +168,7 @@ impl canvas::Program<Message> for GraphicsBox {
     }
 }
 
-pub fn graphics_view(state: &EditorState) -> Element<Message> {
+pub fn graphics_view(state: &EditorState) -> Element<'_, Message> {
     let pal = &state.palettes[state.palette_idx];
     let pal_id = pal.id;
     let mut col: Column<Message> = Column::new()

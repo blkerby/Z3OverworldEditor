@@ -180,13 +180,13 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 }
                 s.push(row);
             }
-            let msg = UndoAction::Ok(Message::TilesetBrush {
+            
+            UndoAction::Ok(Message::TilesetBrush {
                 palette_id,
                 coords: Point { x: x0, y: y0 },
                 selected_gfx: s,
                 tile_block: None,
-            });
-            msg
+            })
         }
         Message::SelectPixel(_, _) => UndoAction::None,
         &Message::BrushPixel {
@@ -223,8 +223,8 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::EditAreaBGRed(_) => UndoAction::None,
         Message::EditAreaBGGreen(_) => UndoAction::None,
         Message::EditAreaBGBlue(_) => UndoAction::None,
-        &Message::EditAreaBGColor {
-            ref area_id,
+        Message::EditAreaBGColor {
+            area_id,
             color: _,
         } => UndoAction::Ok(Message::EditAreaBGColor {
             area_id: area_id.clone(),

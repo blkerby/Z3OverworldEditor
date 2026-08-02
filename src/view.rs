@@ -102,7 +102,7 @@ fn vertical_separator() -> quad::Quad {
     }
 }
 
-pub fn help_view(_state: &EditorState) -> Element<Message> {
+pub fn help_view(_state: &EditorState) -> Element<'_, Message> {
     let controls = vec![
         ("s", "Select tool", "copy tiles, colors, pixels"),
         ("b", "Brush tool", "paste tiles, colors, pixels"),
@@ -143,7 +143,7 @@ pub fn help_view(_state: &EditorState) -> Element<Message> {
         .into()
 }
 
-pub fn rebuild_project_view(_state: &EditorState) -> Element<Message> {
+pub fn rebuild_project_view(_state: &EditorState) -> Element<'_, Message> {
     container(text(
         "Please wait while the project PNG files are exported.",
     ))
@@ -153,7 +153,7 @@ pub fn rebuild_project_view(_state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn modified_reload_view(_state: &EditorState) -> Element<Message> {
+pub fn modified_reload_view(_state: &EditorState) -> Element<'_, Message> {
     container(
         column![
             text("File changes detected on disk."),
@@ -191,7 +191,7 @@ pub fn view_dialogue<'a>(
             }
             Dialogue::RenamePalette { name } => modal(
                 main_view,
-                rename_palette_view(&state, name),
+                rename_palette_view(state, name),
                 Message::HideModal,
             ),
             Dialogue::AddArea { name, size } => {
@@ -244,7 +244,7 @@ pub fn view_dialogue<'a>(
     }
 }
 
-pub fn view(state: &EditorState) -> Element<Message> {
+pub fn view(state: &EditorState) -> Element<'_, Message> {
     if state.global_config.project_dir.is_none() {
         return Space::new(Length::Fill, Length::Fill).into();
     }

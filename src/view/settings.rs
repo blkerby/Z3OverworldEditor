@@ -13,7 +13,7 @@ use crate::{
 
 use super::modal_background_style;
 
-pub fn settings_view(state: &EditorState) -> Element<Message> {
+pub fn settings_view(state: &EditorState) -> Element<'_, Message> {
     let project_dir = state.global_config.project_dir.as_ref().unwrap();
     let zoom_range = MIN_PIXEL_SIZE..=MAX_PIXEL_SIZE;
     container(
@@ -51,7 +51,7 @@ pub fn settings_view(state: &EditorState) -> Element<Message> {
                     state.global_config.grid_alpha,
                     Message::SetGridAlpha
                 )
-                .step(0.01)
+                .step(0.01_f32)
                 .width(Length::Fill),
                 number_input(
                     &((state.global_config.grid_alpha * 100.0).round() as u8),
@@ -80,7 +80,7 @@ pub fn settings_view(state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn import_rom_confirm_view(_state: &EditorState) -> Element<Message> {
+pub fn import_rom_confirm_view(_state: &EditorState) -> Element<'_, Message> {
     container(
         column![
             text("Import project from ROM?"),
@@ -104,7 +104,7 @@ pub fn import_rom_confirm_view(_state: &EditorState) -> Element<Message> {
     .into()
 }
 
-pub fn import_rom_progress_view(_state: &EditorState) -> Element<Message> {
+pub fn import_rom_progress_view(_state: &EditorState) -> Element<'_, Message> {
     container(text("Please wait while ROM is importing."))
         .width(350)
         .padding(25)

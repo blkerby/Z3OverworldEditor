@@ -87,7 +87,7 @@ fn save_palette_colors_png(png_path: &Path, palette: &Palette) -> Result<()> {
 
     let path = Path::new(png_path);
     let file = File::create(path).unwrap();
-    let ref mut w = BufWriter::new(file);
+    let w = &mut BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, 16 * pixel_size as u32, pixel_size as u32);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
@@ -107,7 +107,7 @@ fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
 
     let tiles = &palette.tiles;
     let num_cols = 16;
-    let num_rows = (tiles.len() + num_cols - 1) / num_cols;
+    let num_rows = tiles.len().div_ceil(num_cols);
 
     let mut data: Vec<u8> = vec![];
     data.reserve_exact(num_rows * num_cols * 64 * 3);
@@ -131,7 +131,7 @@ fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
 
     let path = Path::new(png_path);
     let file = File::create(path).unwrap();
-    let ref mut w = BufWriter::new(file);
+    let w = &mut BufWriter::new(file);
     let mut encoder = png::Encoder::new(
         w,
         num_cols as u32 * 8 * pixel_size as u32,
@@ -260,7 +260,7 @@ pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     let mut color_bytes: Vec<Vec<[u8; 3]>> = vec![];
     let area = &state.areas[area_id];
     for i in 0..state.palettes.len() {
-        let mut colors = state.palettes[i].colors.clone();
+        let mut colors = state.palettes[i].colors;
         colors[0] = area.bg_color;
         let cb = colors
             .iter()
@@ -315,7 +315,7 @@ pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     let area_png_filename = format!("{}.png", area.theme);
     let area_png_path = area_dir.join(&area.name).join(area_png_filename);
     let file = File::create(&area_png_path).unwrap();
-    let ref mut w = BufWriter::new(file);
+    let w = &mut BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, num_cols as u32, num_rows as u32);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
@@ -523,12 +523,9 @@ impl EventHandler for FileModificationHandler {
         let Ok(e) = event else {
             return;
         };
-        match e.kind {
-            notify::EventKind::Modify(_) => {
-                let mut data = self.modified.lock().unwrap();
-                *data = true;
-            }
-            _ => {}
+        if let notify::EventKind::Modify(_) = e.kind {
+            let mut data = self.modified.lock().unwrap();
+            *data = true;
         }
     }
 }

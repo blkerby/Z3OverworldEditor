@@ -48,9 +48,9 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
                 color_idx: last_color_idx,
                 color: last_color,
             } => {
-                return palette_id == last_palette_id
+                palette_id == last_palette_id
                     && color_idx == last_color_idx
-                    && color == last_color;
+                    && color == last_color
             }
             _ => false,
         },
@@ -392,11 +392,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 ..
             }) => {
                 if modifiers.control() {
-                    match c.as_str() {
-                        "r" => {
-                            return Ok(Some(Task::done(Message::RebuildProjectDialogue)));
-                        }
-                        _ => {}
+                    if c.as_str() == "r" {
+                        return Ok(Some(Task::done(Message::RebuildProjectDialogue)));
                     }
                 } else {
                     match c.as_str() {
@@ -595,20 +592,14 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("AddPalette")));
         }
-        Message::SetAddPaletteName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::AddPalette { name, .. }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetAddPaletteName(new_name) => if let Some(Dialogue::AddPalette { name, .. }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
-        &Message::SetAddPaletteID(new_id) => match &mut state.dialogue {
-            Some(Dialogue::AddPalette { id, .. }) => {
-                *id = new_id;
-            }
-            _ => {}
+        &Message::SetAddPaletteID(new_id) => if let Some(Dialogue::AddPalette { id, .. }) = &mut state.dialogue {
+            *id = new_id;
         },
         Message::AddPalette { name, id } => {
-            if name.len() == 0 {
+            if name.is_empty() {
                 warn!("Empty palette name is invalid.");
                 return Ok(None);
             }
@@ -639,14 +630,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("RenamePalette")));
         }
-        Message::SetRenamePaletteName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::RenamePalette { name }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetRenamePaletteName(new_name) => if let Some(Dialogue::RenamePalette { name }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
         Message::RenamePalette { id: _, name } => {
-            if name.len() == 0 {
+            if name.is_empty() {
                 warn!("Empty palette name is invalid.");
                 return Ok(None);
             }
@@ -713,7 +701,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             state.palette_idx = pal_idx;
             state.color_idx = Some(color_idx);
-            state.selected_color = state.palettes[pal_idx as usize].colors[color_idx as usize];
+            state.selected_color = state.palettes[pal_idx].colors[color_idx as usize];
             state.focus = Focus::PaletteColor;
         }
         &Message::BrushColor {
@@ -735,7 +723,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 state.selected_color[0] = c;
                 return Ok(Some(Task::done(Message::BrushColor {
                     palette_id,
-                    color_idx: color_idx,
+                    color_idx,
                     color: state.selected_color,
                 })));
             }
@@ -747,7 +735,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 state.selected_color[1] = c;
                 return Ok(Some(Task::done(Message::BrushColor {
                     palette_id,
-                    color_idx: color_idx,
+                    color_idx,
                     color: state.selected_color,
                 })));
             }
@@ -759,7 +747,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 state.selected_color[2] = c;
                 return Ok(Some(Task::done(Message::BrushColor {
                     palette_id,
-                    color_idx: color_idx,
+                    color_idx,
                     color: state.selected_color,
                 })));
             }
@@ -870,7 +858,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     let x1 = x + x0 as usize;
                     let i = y1 * 16 + x1;
                     if x1 < 16 && i < state.palettes[pal_idx].tiles.len() {
-                        let mut tile = s[y as usize][x as usize];
+                        let mut tile = s[{ y }][x];
                         if let Some(t) = tile_block {
                             let src_pal_id = t.palettes[y][x];
                             if src_pal_id != palette_id {
@@ -945,26 +933,17 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("AddArea")));
         }
-        Message::SetAddAreaName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::AddArea { name, .. }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetAddAreaName(new_name) => if let Some(Dialogue::AddArea { name, .. }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
-        &Message::SetAddAreaSizeX(new_x) => match &mut state.dialogue {
-            Some(Dialogue::AddArea { size, .. }) => {
-                size.0 = new_x;
-            }
-            _ => {}
+        &Message::SetAddAreaSizeX(new_x) => if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
+            size.0 = new_x;
         },
-        &Message::SetAddAreaSizeY(new_y) => match &mut state.dialogue {
-            Some(Dialogue::AddArea { size, .. }) => {
-                size.1 = new_y;
-            }
-            _ => {}
+        &Message::SetAddAreaSizeY(new_y) => if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
+            size.1 = new_y;
         },
         Message::AddArea { name, size } => {
-            if name.len() == 0 {
+            if name.is_empty() {
                 warn!("Empty area name is invalid.");
                 return Ok(None);
             }
@@ -1008,14 +987,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("EditArea")));
         }
-        Message::SetEditAreaName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::EditArea { name }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetEditAreaName(new_name) => if let Some(Dialogue::EditArea { name }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
         Message::EditArea { old_name, new_name } => {
-            if new_name.len() == 0 {
+            if new_name.is_empty() {
                 warn!("Empty area name is invalid.");
                 return Ok(None);
             }
@@ -1125,14 +1101,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("AddTheme")));
         }
-        Message::SetAddThemeName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::AddTheme { name }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetAddThemeName(new_name) => if let Some(Dialogue::AddTheme { name }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
         Message::AddTheme(theme_name) => {
-            if theme_name.len() == 0 {
+            if theme_name.is_empty() {
                 warn!("Empty theme name is invalid.");
                 return Ok(None);
             }
@@ -1145,7 +1118,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             let old_theme = state.main_area().theme.clone();
             for area_name in &state.area_names.clone() {
-                copy_area_theme(state, area_name, &old_theme, &theme_name)?;
+                copy_area_theme(state, area_name, &old_theme, theme_name)?;
             }
             state.switch_area(
                 AreaPosition::Main,
@@ -1164,14 +1137,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("RenameTheme")));
         }
-        Message::SetRenameThemeName(new_name) => match &mut state.dialogue {
-            Some(Dialogue::RenameTheme { name }) => {
-                *name = new_name.clone();
-            }
-            _ => {}
+        Message::SetRenameThemeName(new_name) => if let Some(Dialogue::RenameTheme { name }) = &mut state.dialogue {
+            *name = new_name.clone();
         },
         Message::RenameTheme { old_name, new_name } => {
-            if new_name.len() == 0 {
+            if new_name.is_empty() {
                 warn!("Empty theme name is invalid.");
                 return Ok(None);
             }
@@ -1531,14 +1501,14 @@ pub fn update(state: &mut EditorState, mut message: Message) -> Task<Message> {
             if let Err(e) = state.enable_watch_file_changes() {
                 error!("Error re-enabling watcher: {}\n{}", e, e.backtrace());
             }
-            return Task::none();
+            Task::none()
         }
     }
 }
 
 pub fn update_palette_order(state: &mut EditorState) {
     let id = state.palettes[state.palette_idx].id;
-    state.palettes.sort_by(|x, y| x.id.cmp(&y.id));
+    state.palettes.sort_by_key(|x| x.id);
     state.palettes_id_idx_map.clear();
     for i in 0..state.palettes.len() {
         state.palettes_id_idx_map.insert(state.palettes[i].id, i);
@@ -1557,8 +1527,8 @@ pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Tile>> {
             let tile_idx = s.tiles[y as usize][x as usize];
             let flip = s.flips[y as usize][x as usize];
             let tile = if let Some(&idx) = state.palettes_id_idx_map.get(&palette_id) {
-                if (tile_idx as usize) < state.palettes[idx as usize].tiles.len() {
-                    flip.apply_to_tile(state.palettes[idx as usize].tiles[tile_idx as usize])
+                if (tile_idx as usize) < state.palettes[idx].tiles.len() {
+                    flip.apply_to_tile(state.palettes[idx].tiles[tile_idx as usize])
                 } else {
                     Tile::default()
                 }
