@@ -465,6 +465,7 @@ impl<'a> Importer<'a> {
                             id: next_id,
                             colors,
                             tiles: vec![],
+                            animated_tile_groups: vec![],
                         });
                         pal_by_colors.insert(colors, next_id);
                         palette_ids.push(next_id);

@@ -52,6 +52,106 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
             }
         }
         Message::RestorePalette(pal) => UndoAction::Ok(Message::DeletePalette(pal.id)),
+        Message::AnimatedTilesDialogue => UndoAction::None,
+        Message::SelectAnimatedGroup(_) => UndoAction::None,
+        Message::SelectAnimatedTile { .. } => UndoAction::None,
+        Message::AddAnimatedTileGroup { palette_id, group } => {
+            UndoAction::Ok(Message::DeleteAnimatedTileGroup {
+                palette_id: *palette_id,
+                base_tile: group.base_tile,
+            })
+        }
+        Message::DeleteAnimatedTileGroup {
+            palette_id,
+            base_tile,
+        } => {
+            let idx = *state
+                .palettes_id_idx_map
+                .get(palette_id)
+                .context("palette not found")?;
+            let group = state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == *base_tile)
+                .context("animated tile group not found")?;
+            UndoAction::Ok(Message::AddAnimatedTileGroup {
+                palette_id: *palette_id,
+                group: group.clone(),
+            })
+        }
+        Message::SetAnimatedTileGroup {
+            palette_id,
+            base_tile,
+            ..
+        } => {
+            let idx = *state
+                .palettes_id_idx_map
+                .get(palette_id)
+                .context("palette not found")?;
+            let group = state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == *base_tile)
+                .context("animated tile group not found")?;
+            UndoAction::Ok(Message::SetAnimatedTileGroup {
+                palette_id: *palette_id,
+                base_tile: *base_tile,
+                group: group.clone(),
+            })
+        }
+        Message::SetAnimatedFrameCount {
+            palette_id,
+            base_tile,
+            ..
+        } => {
+            let idx = state.palettes_id_idx_map[palette_id];
+            let group = state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == *base_tile)
+                .context("animated tile group not found")?;
+            UndoAction::Ok(Message::SetAnimatedTileGroup {
+                palette_id: *palette_id,
+                base_tile: *base_tile,
+                group: group.clone(),
+            })
+        }
+        Message::SetAnimatedFrameHold {
+            palette_id,
+            base_tile,
+            ..
+        } => {
+            let idx = state.palettes_id_idx_map[palette_id];
+            let frame_hold = state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == *base_tile)
+                .context("animated tile group not found")?
+                .frame_hold;
+            UndoAction::Ok(Message::SetAnimatedFrameHold {
+                palette_id: *palette_id,
+                base_tile: *base_tile,
+                frame_hold,
+            })
+        }
+        Message::SetAnimatedPhaseOffset {
+            palette_id,
+            base_tile,
+            ..
+        } => {
+            let idx = state.palettes_id_idx_map[palette_id];
+            let phase_offset = state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == *base_tile)
+                .context("animated tile group not found")?
+                .phase_offset;
+            UndoAction::Ok(Message::SetAnimatedPhaseOffset {
+                palette_id: *palette_id,
+                base_tile: *base_tile,
+                phase_offset,
+            })
+        }
         Message::RenamePaletteDialogue => UndoAction::None,
         Message::SetRenamePaletteName(_) => UndoAction::None,
         Message::RenamePalette { id, name: _ } => {
@@ -188,10 +288,10 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 tile_block: None,
             })
         }
-        Message::SelectPixel(_, _) => UndoAction::None,
+        Message::SelectPixel(_, _, _) => UndoAction::None,
         &Message::BrushPixel {
             palette_id,
-            tile_idx,
+            target,
             coords,
             color_idx: _,
         } => {
@@ -200,10 +300,26 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 .get(&palette_id)
                 .context("undefined palette")?;
             let pal = &state.palettes[pal_idx];
-            let c = pal.tiles[tile_idx as usize].pixels[coords.y as usize][coords.x as usize];
+            let c = match target {
+                crate::state::PixelTarget::Regular(tile) => {
+                    pal.tiles[tile as usize].pixels[coords.y as usize][coords.x as usize]
+                }
+                crate::state::PixelTarget::Animated {
+                    tile_idx,
+                    frame,
+                } => {
+                    let base_tile = tile_idx / 16 * 16;
+                    let tile = (tile_idx % 16) as usize;
+                    pal.animated_tile_groups
+                        .iter()
+                        .find(|group| group.base_tile == base_tile)
+                        .context("animated tile group not found")?
+                        .frames[frame][tile][coords.y as usize][coords.x as usize]
+                }
+            };
             UndoAction::Ok(Message::BrushPixel {
                 palette_id,
-                tile_idx,
+                target,
                 coords,
                 color_idx: c,
             })

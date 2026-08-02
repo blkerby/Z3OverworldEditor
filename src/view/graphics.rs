@@ -2,14 +2,14 @@
 use iced::{
     alignment::Vertical,
     mouse,
-    widget::{canvas, column, horizontal_space, pick_list, row, text, Column},
+    widget::{canvas, column, horizontal_space, pick_list, row, text, Column, Space},
     Element, Point, Size,
 };
 use iced_aw::number_input;
 
 use crate::{
     message::Message,
-    state::{ColorIdx, ColorRGB, EditorState, PaletteId, PixelCoord, Tile, TileIdx, Tool},
+    state::{ColorIdx, ColorRGB, EditorState, PaletteId, PixelCoord, PixelTarget, Tile, Tool},
 };
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ struct GraphicsBox {
     colors: [ColorRGB; 16],
     tile: Tile,
     palette_id: PaletteId,
-    tile_idx: TileIdx,
+    target: PixelTarget,
     color_idx: Option<ColorIdx>,
     pixel_coords: Option<(PixelCoord, PixelCoord)>,
     pixel_size: f32,
@@ -78,7 +78,7 @@ impl canvas::Program<Message> for GraphicsBox {
                         canvas::event::Status::Captured,
                         Some(Message::BrushPixel {
                             palette_id: self.palette_id,
-                            tile_idx: self.tile_idx,
+                            target: self.target,
                             coords: Point {
                                 x: x as PixelCoord,
                                 y: y as PixelCoord,
@@ -90,7 +90,11 @@ impl canvas::Program<Message> for GraphicsBox {
             } else {
                 return (
                     canvas::event::Status::Captured,
-                    Some(Message::SelectPixel(x as PixelCoord, y as PixelCoord)),
+                    Some(Message::SelectPixel(
+                        self.target,
+                        x as PixelCoord,
+                        y as PixelCoord,
+                    )),
                 );
             }
         }
@@ -170,16 +174,28 @@ impl canvas::Program<Message> for GraphicsBox {
 
 pub fn graphics_view(state: &EditorState) -> Element<'_, Message> {
     let pal = &state.palettes[state.palette_idx];
-    let pal_id = pal.id;
-    let mut col: Column<Message> = Column::new()
-        .width(400)
-        .align_x(iced::alignment::Horizontal::Center);
     if let Some(idx) = state.tile_idx {
         let tile = pal.tiles[idx as usize];
+        return pixel_editor(state, tile, PixelTarget::Regular(idx), true);
+    }
+    Column::new().width(400).into()
+}
+
+pub fn pixel_editor(
+    state: &EditorState,
+    tile: Tile,
+    target: PixelTarget,
+    show_properties: bool,
+) -> Element<'_, Message> {
+    let pal = &state.palettes[state.palette_idx];
+    let pal_id = pal.id;
+    let properties: Element<Message> = if show_properties {
+        let PixelTarget::Regular(idx) = target else {
+            unreachable!()
+        };
         let label_width = 105;
-        col = col
-            .push(row![
-                column![
+        column![
+                    column![
                     row![
                         text("Tile number").width(label_width),
                         text(format!("${:02X} ({})", idx, idx)),
@@ -241,24 +257,36 @@ pub fn graphics_view(state: &EditorState) -> Element<'_, Message> {
                     .align_y(Vertical::Center),
                 ]
                 .spacing(12)
-                .padding([5, 15]),
-                horizontal_space(),
-                canvas(GraphicsBox {
-                    colors: pal.colors,
-                    tile,
-                    palette_id: pal_id,
-                    tile_idx: idx,
-                    color_idx: state.color_idx,
-                    pixel_coords: state.pixel_coords,
-                    pixel_size: 24.0,
-                    thickness: 1.0,
-                    color_selected: state.color_idx.is_some(),
-                    tool: state.tool,
-                })
-                .width(24 * 8 + 2)
-                .height(24 * 8 + 4)
-            ])
-            .padding([10, 0]);
-    }
-    col.into()
+                .padding([5, 15])
+        ]
+        .into()
+    } else {
+        Space::with_width(0).into()
+    };
+    let gap: Element<Message> = if show_properties {
+        horizontal_space().into()
+    } else {
+        Space::with_width(0).into()
+    };
+
+    row![
+        properties,
+        gap,
+        canvas(GraphicsBox {
+            colors: pal.colors,
+            tile,
+            palette_id: pal_id,
+            target,
+            color_idx: state.color_idx,
+            pixel_coords: state.pixel_coords,
+            pixel_size: 24.0,
+            thickness: 1.0,
+            color_selected: state.color_idx.is_some(),
+            tool: state.tool,
+        })
+        .width(24 * 8 + 2)
+        .height(24 * 8 + 4)
+    ]
+    .padding([10, 0])
+    .into()
 }

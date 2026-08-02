@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use iced::Point;
 
 use crate::state::{
-    AreaId, AreaPosition, CollisionType, ColorIdx, ColorRGB, ColorValue, Focus, Palette, PaletteId,
-    PaletteIdx, PixelCoord, Tile, TileBlock, TileCoord, TileIdx,
+    AnimatedTileGroup, AreaId, AreaPosition, CollisionType, ColorIdx, ColorRGB, ColorValue, Focus,
+    Palette, PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -45,6 +45,41 @@ pub enum Message {
     DeletePaletteDialogue,
     DeletePalette(PaletteId),
     RestorePalette(Palette),
+    AnimatedTilesDialogue,
+    SelectAnimatedGroup(TileIdx),
+    SelectAnimatedTile {
+        base_tile: TileIdx,
+        frame: usize,
+        tile: usize,
+    },
+    AddAnimatedTileGroup {
+        palette_id: PaletteId,
+        group: AnimatedTileGroup,
+    },
+    DeleteAnimatedTileGroup {
+        palette_id: PaletteId,
+        base_tile: TileIdx,
+    },
+    SetAnimatedTileGroup {
+        palette_id: PaletteId,
+        base_tile: TileIdx,
+        group: AnimatedTileGroup,
+    },
+    SetAnimatedFrameCount {
+        palette_id: PaletteId,
+        base_tile: TileIdx,
+        frame_count: u16,
+    },
+    SetAnimatedFrameHold {
+        palette_id: PaletteId,
+        base_tile: TileIdx,
+        frame_hold: u16,
+    },
+    SetAnimatedPhaseOffset {
+        palette_id: PaletteId,
+        base_tile: TileIdx,
+        phase_offset: u16,
+    },
     RenamePaletteDialogue,
     SetRenamePaletteName(String),
     RenamePalette {
@@ -90,10 +125,10 @@ pub enum Message {
         selected_gfx: Vec<Vec<Tile>>,
         tile_block: Option<TileBlock>,
     },
-    SelectPixel(PixelCoord, PixelCoord),
+    SelectPixel(PixelTarget, PixelCoord, PixelCoord),
     BrushPixel {
         palette_id: PaletteId,
-        tile_idx: TileIdx,
+        target: PixelTarget,
         coords: Point<PixelCoord>,
         color_idx: ColorIdx,
     },

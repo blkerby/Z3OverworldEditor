@@ -1,4 +1,5 @@
 mod area;
+mod animated_tiles;
 mod graphics;
 mod palette;
 mod settings;
@@ -10,6 +11,7 @@ use area::{
     add_area_view, add_theme_view, area_grid_view, delete_area_view, delete_theme_view,
     edit_area_view, main_area_controls, rename_theme_view, side_area_controls,
 };
+use animated_tiles::animated_tiles_view;
 use graphics::graphics_view;
 use iced::{
     alignment::Vertical,
@@ -189,6 +191,15 @@ pub fn view_dialogue<'a>(
             Dialogue::DeletePalette => {
                 modal(main_view, delete_palette_view(state), Message::HideModal)
             }
+            Dialogue::AnimatedTiles {
+                base_tile,
+                frame,
+                tile,
+            } => modal(
+                main_view,
+                animated_tiles_view(state, *base_tile, *frame, *tile),
+                Message::HideModal,
+            ),
             Dialogue::RenamePalette { name } => modal(
                 main_view,
                 rename_palette_view(state, name),

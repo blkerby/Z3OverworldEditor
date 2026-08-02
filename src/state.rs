@@ -26,6 +26,7 @@ pub type AreaName = String;
 pub type ThemeName = String;
 pub type CollisionType = u8;
 pub type ColorRGB = [ColorValue; 3];
+pub type TilePixels = [[ColorIdx; 8]; 8];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AreaId {
@@ -40,7 +41,15 @@ pub struct Tile {
     pub collision: CollisionType,
     pub h_flippable: bool,
     pub v_flippable: bool,
-    pub pixels: [[ColorIdx; 8]; 8],
+    pub pixels: TilePixels,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct AnimatedTileGroup {
+    pub base_tile: TileIdx,
+    pub frames: Vec<[TilePixels; 16]>,
+    pub frame_hold: u16,
+    pub phase_offset: u16,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
@@ -52,6 +61,31 @@ pub struct Palette {
     pub id: PaletteId,
     pub colors: [ColorRGB; 16],
     pub tiles: Vec<Tile>,
+    #[serde(default)]
+    pub animated_tile_groups: Vec<AnimatedTileGroup>,
+}
+
+impl Palette {
+    pub fn validate_animated_tile_groups(&self) -> Result<()> {
+        let mut base_tiles = HashSet::new();
+        for group in &self.animated_tile_groups {
+            if group.base_tile % 16 != 0
+                || group.base_tile as usize + 16 > self.tiles.len()
+                || group.frames.is_empty()
+                || group.frame_hold == 0
+                || !base_tiles.insert(group.base_tile)
+            {
+                bail!("invalid animated tile group at tile {}", group.base_tile);
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PixelTarget {
+    Regular(TileIdx),
+    Animated { tile_idx: TileIdx, frame: usize },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -267,6 +301,11 @@ pub enum Dialogue {
         name: String,
     },
     DeletePalette,
+    AnimatedTiles {
+        base_tile: Option<TileIdx>,
+        frame: usize,
+        tile: usize,
+    },
     AddArea {
         name: AreaName,
         size: (u8, u8),
@@ -374,6 +413,7 @@ pub struct EditorState {
 
     // Graphics editing state:
     pub pixel_coords: Option<(PixelCoord, PixelCoord)>,
+    pub pixel_target: Option<PixelTarget>,
 
     // Area editing state:
     pub main_area_id: AreaId,
@@ -603,6 +643,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         show_grid_16: false,
         snap_grid_16: false,
         pixel_coords: None,
+        pixel_target: None,
         watcher: None,
         watch_enabled: false,
         watch_paths: vec![],

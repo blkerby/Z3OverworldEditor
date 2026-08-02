@@ -16,8 +16,8 @@ use crate::{
     },
     state::{
         Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, EditorState, Flip, Focus,
-        PaletteId, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE,
-        MIN_PIXEL_SIZE,
+        PaletteId, PixelTarget, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool,
+        MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -31,6 +31,75 @@ fn select_tileset_tile(state: &mut EditorState, tile_idx: TileIdx) -> Result<()>
     state.selection_source = SelectionSource::Tileset;
     state.focus = Focus::TilesetTile;
     Ok(())
+}
+
+fn target_pixel(
+    state: &EditorState,
+    palette_idx: usize,
+    target: PixelTarget,
+    x: u8,
+    y: u8,
+) -> Result<ColorIdx> {
+    let palette = &state.palettes[palette_idx];
+    Ok(match target {
+        PixelTarget::Regular(tile) => palette.tiles[tile as usize].pixels[y as usize][x as usize],
+        PixelTarget::Animated {
+            tile_idx,
+            frame,
+        } => {
+            let base_tile = tile_idx / 16 * 16;
+            let tile = (tile_idx % 16) as usize;
+            palette
+                .animated_tile_groups
+                .iter()
+                .find(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?
+                .frames[frame][tile][y as usize][x as usize]
+        }
+    })
+}
+
+fn set_target_pixel(
+    state: &mut EditorState,
+    palette_idx: usize,
+    target: PixelTarget,
+    x: u8,
+    y: u8,
+    color: ColorIdx,
+) -> Result<()> {
+    let palette = &mut state.palettes[palette_idx];
+    match target {
+        PixelTarget::Regular(tile) => {
+            palette.tiles[tile as usize].pixels[y as usize][x as usize] = color
+        }
+        PixelTarget::Animated {
+            tile_idx,
+            frame,
+        } => {
+            let base_tile = tile_idx / 16 * 16;
+            let tile = (tile_idx % 16) as usize;
+            palette
+                .animated_tile_groups
+                .iter_mut()
+                .find(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?
+                .frames[frame][tile][y as usize][x as usize] = color
+        }
+    }
+    palette.modified = true;
+    Ok(())
+}
+
+fn is_animated_base_tile(state: &EditorState, palette_id: PaletteId, tile: TileIdx) -> bool {
+    state
+        .palettes_id_idx_map
+        .get(&palette_id)
+        .is_some_and(|&palette_idx| {
+            state.palettes[palette_idx]
+                .animated_tile_groups
+                .iter()
+                .any(|group| tile >= group.base_tile && tile < group.base_tile + 16)
+        })
 }
 
 // Avoid processing the same messages multiple times (e.g. when brushing/pasting and
@@ -56,18 +125,18 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
         },
         Message::BrushPixel {
             palette_id,
-            tile_idx,
+            target,
             coords,
             color_idx,
         } => match last_message {
             Message::BrushPixel {
                 palette_id: last_palette_id,
-                tile_idx: last_tile_idx,
+                target: last_target,
                 coords: last_coords,
                 color_idx: last_color_idx,
             } => {
                 palette_id == last_palette_id
-                    && tile_idx == last_tile_idx
+                    && target == last_target
                     && coords == last_coords
                     && color_idx == last_color_idx
             }
@@ -164,6 +233,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 state.dialogue = None;
                 state.color_idx = None;
                 state.tile_idx = None;
+                state.pixel_target = None;
+                state.pixel_coords = None;
                 state.selected_gfx = vec![];
                 state.start_coords = None;
                 state.end_coords = None;
@@ -194,6 +265,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         if let Some(coords) = state.pixel_coords {
                             if coords.0 < 7 {
                                 return Ok(Some(Task::done(Message::SelectPixel(
+                                    state.pixel_target.context("pixel target not selected")?,
                                     coords.0 + 1,
                                     coords.1,
                                 ))));
@@ -236,6 +308,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         if let Some(coords) = state.pixel_coords {
                             if coords.0 > 0 {
                                 return Ok(Some(Task::done(Message::SelectPixel(
+                                    state.pixel_target.context("pixel target not selected")?,
                                     coords.0 - 1,
                                     coords.1,
                                 ))));
@@ -296,6 +369,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             state.palette_idx += 1;
                             state.color_idx = None;
                             state.tile_idx = None;
+                            state.pixel_target = None;
+                            state.pixel_coords = None;
                         }
                     }
                     Focus::PaletteColor => {}
@@ -303,6 +378,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         if let Some(coords) = state.pixel_coords {
                             if coords.1 < 7 {
                                 return Ok(Some(Task::done(Message::SelectPixel(
+                                    state.pixel_target.context("pixel target not selected")?,
                                     coords.0,
                                     coords.1 + 1,
                                 ))));
@@ -363,6 +439,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             state.palette_idx -= 1;
                             state.color_idx = None;
                             state.tile_idx = None;
+                            state.pixel_target = None;
+                            state.pixel_coords = None;
                         }
                     }
                     Focus::PaletteColor => {}
@@ -370,6 +448,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         if let Some(coords) = state.pixel_coords {
                             if coords.1 > 0 {
                                 return Ok(Some(Task::done(Message::SelectPixel(
+                                    state.pixel_target.context("pixel target not selected")?,
                                     coords.0,
                                     coords.1 - 1,
                                 ))));
@@ -553,6 +632,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         Message::CloseDialogue => {
             state.dialogue = None;
+            state.pixel_target = state.tile_idx.map(PixelTarget::Regular);
+            state.pixel_coords = None;
         }
         Message::ImportDialogue => {
             return Ok(Some(Task::perform(open_rom(), Message::ImportConfirm)));
@@ -580,6 +661,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     state.palette_idx = i;
                     state.color_idx = None;
                     state.tile_idx = None;
+                    state.pixel_target = None;
+                    state.pixel_coords = None;
                     break;
                 }
             }
@@ -678,6 +761,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             update_palette_order(state);
             state.tile_idx = None;
+            state.pixel_target = None;
+            state.pixel_coords = None;
             state.color_idx = None;
             state.dialogue = None;
         }
@@ -687,15 +772,194 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             state.palettes.push(pal);
             state.palette_idx = state.palettes.len() - 1;
             state.tile_idx = None;
+            state.pixel_target = None;
+            state.pixel_coords = None;
             state.color_idx = None;
             update_palette_order(state);
         }
+        Message::AnimatedTilesDialogue => {
+            let palette = &state.palettes[state.palette_idx];
+            let selected_row = state.tile_idx.map(|tile| tile / 16 * 16);
+            let base_tile = selected_row
+                .filter(|base| {
+                    palette
+                        .animated_tile_groups
+                        .iter()
+                        .any(|group| group.base_tile == *base)
+                })
+                .or_else(|| palette.animated_tile_groups.first().map(|group| group.base_tile));
+            state.dialogue = Some(Dialogue::AnimatedTiles {
+                base_tile,
+                frame: 0,
+                tile: 0,
+            });
+        }
+        &Message::SelectAnimatedGroup(base_tile) => {
+            if let Some(Dialogue::AnimatedTiles {
+                base_tile: selected,
+                frame,
+                tile,
+            }) = &mut state.dialogue
+            {
+                *selected = Some(base_tile);
+                *frame = 0;
+                *tile = 0;
+                state.pixel_coords = None;
+                state.pixel_target = None;
+                state.focus = Focus::None;
+            }
+        }
+        &Message::SelectAnimatedTile {
+            base_tile,
+            frame: new_frame,
+            tile: new_tile,
+        } => {
+            if let Some(Dialogue::AnimatedTiles {
+                base_tile: selected,
+                frame,
+                tile,
+            }) = &mut state.dialogue
+            {
+                *selected = Some(base_tile);
+                *frame = new_frame;
+                *tile = new_tile;
+                state.pixel_coords = None;
+                state.pixel_target = None;
+                state.focus = Focus::None;
+            }
+        }
+        Message::AddAnimatedTileGroup { palette_id, group } => {
+            let palette_idx = *state
+                .palettes_id_idx_map
+                .get(palette_id)
+                .context("palette not found")?;
+            let palette = &mut state.palettes[palette_idx];
+            if palette
+                .animated_tile_groups
+                .iter()
+                .any(|existing| existing.base_tile == group.base_tile)
+            {
+                warn!("Animated tile group already exists for this row.");
+                return Ok(None);
+            }
+            palette.animated_tile_groups.push(group.clone());
+            palette
+                .animated_tile_groups
+                .sort_by_key(|group| group.base_tile);
+            palette.modified = true;
+            state.dialogue = Some(Dialogue::AnimatedTiles {
+                base_tile: Some(group.base_tile),
+                frame: 0,
+                tile: 0,
+            });
+        }
+        &Message::DeleteAnimatedTileGroup {
+            palette_id,
+            base_tile,
+        } => {
+            let palette_idx = *state
+                .palettes_id_idx_map
+                .get(&palette_id)
+                .context("palette not found")?;
+            let palette = &mut state.palettes[palette_idx];
+            let group_idx = palette
+                .animated_tile_groups
+                .iter()
+                .position(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?;
+            palette.animated_tile_groups.remove(group_idx);
+            palette.modified = true;
+            let next = palette
+                .animated_tile_groups
+                .get(group_idx)
+                .or_else(|| palette.animated_tile_groups.last())
+                .map(|group| group.base_tile);
+            state.dialogue = Some(Dialogue::AnimatedTiles {
+                base_tile: next,
+                frame: 0,
+                tile: 0,
+            });
+        }
+        Message::SetAnimatedTileGroup {
+            palette_id,
+            base_tile,
+            group,
+        } => {
+            let palette_idx = *state
+                .palettes_id_idx_map
+                .get(palette_id)
+                .context("palette not found")?;
+            let palette = &mut state.palettes[palette_idx];
+            let old = palette
+                .animated_tile_groups
+                .iter_mut()
+                .find(|candidate| candidate.base_tile == *base_tile)
+                .context("animated tile group not found")?;
+            *old = group.clone();
+            palette.modified = true;
+            if let Some(Dialogue::AnimatedTiles { frame, .. }) = &mut state.dialogue {
+                *frame = (*frame).min(group.frames.len());
+            }
+        }
+        &Message::SetAnimatedFrameCount {
+            palette_id,
+            base_tile,
+            frame_count,
+        } => {
+            let palette_idx = state.palettes_id_idx_map[&palette_id];
+            let palette = &mut state.palettes[palette_idx];
+            let group = palette
+                .animated_tile_groups
+                .iter_mut()
+                .find(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?;
+            let last = *group.frames.last().context("animated tile group has no frames")?;
+            group.frames.resize(frame_count as usize - 1, last);
+            palette.modified = true;
+            if let Some(Dialogue::AnimatedTiles { frame, .. }) = &mut state.dialogue {
+                *frame = (*frame).min(frame_count as usize - 1);
+            }
+        }
+        &Message::SetAnimatedFrameHold {
+            palette_id,
+            base_tile,
+            frame_hold,
+        } => {
+            let palette_idx = state.palettes_id_idx_map[&palette_id];
+            let palette = &mut state.palettes[palette_idx];
+            palette
+                .animated_tile_groups
+                .iter_mut()
+                .find(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?
+                .frame_hold = frame_hold;
+            palette.modified = true;
+        }
+        &Message::SetAnimatedPhaseOffset {
+            palette_id,
+            base_tile,
+            phase_offset,
+        } => {
+            let palette_idx = state.palettes_id_idx_map[&palette_id];
+            let palette = &mut state.palettes[palette_idx];
+            palette
+                .animated_tile_groups
+                .iter_mut()
+                .find(|group| group.base_tile == base_tile)
+                .context("animated tile group not found")?
+                .phase_offset = phase_offset;
+            palette.modified = true;
+        }
         Message::HideModal => {
             state.dialogue = None;
+            state.pixel_target = state.tile_idx.map(PixelTarget::Regular);
+            state.pixel_coords = None;
         }
         &Message::SelectColor(pal_idx, color_idx) => {
             if pal_idx != state.palette_idx {
                 state.tile_idx = None;
+                state.pixel_target = None;
+                state.pixel_coords = None;
                 state.start_coords = None;
                 state.end_coords = None;
             }
@@ -769,16 +1033,22 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 warn!("Not allowed to delete the last row of tiles.");
                 return Ok(None);
             }
-            let new_size = state.palettes[state.palette_idx].tiles.len() - 16;
-            state.palettes[state.palette_idx]
-                .tiles
-                .resize(new_size, Tile::default());
+            let new_size = state.palettes[idx].tiles.len() - 16;
+            if state.palettes[idx]
+                .animated_tile_groups
+                .iter()
+                .any(|group| group.base_tile as usize == new_size)
+            {
+                warn!("Not allowed to delete an animated tile group's base row.");
+                return Ok(None);
+            }
+            state.palettes[idx].tiles.resize(new_size, Tile::default());
             if let Some(idx) = state.tile_idx {
                 if idx >= new_size as TileIdx {
                     state.tile_idx = Some(new_size as TileIdx - 1);
                 }
             }
-            state.palettes[state.palette_idx].modified = true;
+            state.palettes[idx].modified = true;
         }
         Message::RestoreTileRow(palette_id, tiles) => {
             let idx = *state
@@ -886,19 +1156,17 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             state.palettes[pal_idx].modified = true;
         }
-        &Message::SelectPixel(x, y) => {
+        &Message::SelectPixel(target, x, y) => {
             state.pixel_coords = Some((x, y));
-            if let Some(tile_idx) = state.tile_idx {
-                let pal = &mut state.palettes[state.palette_idx];
-                let color_idx = pal.tiles[tile_idx as usize].pixels[y as usize][x as usize];
-                state.color_idx = Some(color_idx);
-                state.selected_color = pal.colors[color_idx as usize];
-                state.focus = Focus::GraphicsPixel;
-            }
+            state.pixel_target = Some(target);
+            let color_idx = target_pixel(state, state.palette_idx, target, x, y)?;
+            state.color_idx = Some(color_idx);
+            state.selected_color = state.palettes[state.palette_idx].colors[color_idx as usize];
+            state.focus = Focus::GraphicsPixel;
         }
         &Message::BrushPixel {
             palette_id,
-            tile_idx,
+            target,
             coords,
             color_idx,
         } => {
@@ -906,9 +1174,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 .palettes_id_idx_map
                 .get(&palette_id)
                 .context("undefined palette")?;
-            let pal = &mut state.palettes[pal_idx];
-            pal.tiles[tile_idx as usize].pixels[coords.y as usize][coords.x as usize] = color_idx;
-            pal.modified = true;
+            set_target_pixel(state, pal_idx, target, coords.x, coords.y, color_idx)?;
         }
         &Message::SelectArea(position, ref name) => {
             let area_id = &state.main_area_id;
@@ -1292,6 +1558,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 })));
             } else {
                 state.tile_idx = None;
+                state.pixel_target = None;
+                state.pixel_coords = None;
             }
         }
         &Message::AreaBrush {
@@ -1326,6 +1594,8 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
                 state.palette_idx = palette_idx;
                 state.tile_idx = Some(tile_idx);
+                state.pixel_target = Some(PixelTarget::Regular(tile_idx));
+                state.pixel_coords = None;
             }
         }
         Message::MovingTilesProgress {
@@ -1346,6 +1616,22 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             check_reversible,
         } => {
             assert!(src_selection.size == dst_selection.size);
+            if [&src_selection, &dst_selection].into_iter().any(|selection| {
+                selection
+                    .palettes
+                    .iter()
+                    .zip(&selection.tiles)
+                    .any(|(palettes, tiles)| {
+                        palettes
+                            .iter()
+                            .zip(tiles)
+                            .any(|(&palette, &tile)| is_animated_base_tile(state, palette, tile))
+                    })
+            }) {
+                warn!("Not moving tiles: the selection intersects an animated base row.");
+                state.dialogue = None;
+                return Ok(None);
+            }
             let mut mapping: HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)> =
                 HashMap::new();
 

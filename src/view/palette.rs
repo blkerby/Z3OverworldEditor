@@ -143,28 +143,7 @@ pub fn selected_palette_view(state: &EditorState) -> Element<'_, Message> {
     let pal = &state.palettes[state.palette_idx];
     let selected_palette_name = format!("{}: {}", pal.id, pal.name);
 
-    let mut colors_row = iced::widget::Row::new();
-    let pal = &state.palettes[state.palette_idx];
-    let size = 25.0;
-    for i in 0..16 {
-        colors_row = colors_row.push(
-            canvas(ColorBox {
-                r: pal.colors[i][0] as f32 / 31.0,
-                g: pal.colors[i][1] as f32 / 31.0,
-                b: pal.colors[i][2] as f32 / 31.0,
-                thickness: 2.0,
-                selected: Some(i as ColorIdx) == state.color_idx,
-                color_idx: i as ColorIdx,
-                palette_id: state.palettes[state.palette_idx].id,
-                palette_idx: state.palette_idx,
-                selected_color: state.selected_color,
-                tool: state.tool,
-            })
-            .width(size)
-            .height(size),
-        );
-    }
-
+    let colors_row = palette_colors_view(state);
     let rgb_width = 80;
     let mut col = column![
         row![
@@ -208,6 +187,30 @@ pub fn selected_palette_view(state: &EditorState) -> Element<'_, Message> {
     }
 
     row![col].padding(10).into()
+}
+
+pub fn palette_colors_view(state: &EditorState) -> Row<'_, Message> {
+    let pal = &state.palettes[state.palette_idx];
+    let mut colors_row = Row::new();
+    for i in 0..16 {
+        colors_row = colors_row.push(
+            canvas(ColorBox {
+                r: pal.colors[i][0] as f32 / 31.0,
+                g: pal.colors[i][1] as f32 / 31.0,
+                b: pal.colors[i][2] as f32 / 31.0,
+                thickness: 2.0,
+                selected: Some(i as ColorIdx) == state.color_idx,
+                color_idx: i as ColorIdx,
+                palette_id: state.palettes[state.palette_idx].id,
+                palette_idx: state.palette_idx,
+                selected_color: state.selected_color,
+                tool: state.tool,
+            })
+            .width(25)
+            .height(25),
+        );
+    }
+    colors_row
 }
 
 pub fn add_palette_view(name: &str, id: PaletteId) -> Element<'_, Message> {

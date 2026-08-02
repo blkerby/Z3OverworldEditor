@@ -201,6 +201,8 @@ fn load_palettes(state: &mut EditorState) -> Result<()> {
             .context("bad file stem")?;
         let mut pal: Palette = load_json(&path)?;
         pal.name = name.to_owned();
+        pal.validate_animated_tile_groups()
+            .with_context(|| format!("invalid palette: {}", path.display()))?;
         state.palettes.push(pal);
     }
     ensure_palettes_non_empty(state);
