@@ -12,3 +12,4 @@ Some features still needed:
 Bugs to fix:
 - pixel brush loses mouse release when OOB
 - pixel brush debounce isn't working?
+- changing area BG color doesn't trigger autosave
