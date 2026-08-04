@@ -356,9 +356,6 @@ impl canvas::Program<Message> for TileSelect {
         bounds: iced::Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
-        if !self.active {
-            return vec![];
-        }
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
         for row in &self.animated_rows {
@@ -367,6 +364,9 @@ impl canvas::Program<Message> for TileSelect {
                 Size::new(4.0, self.pixel_size * 8.0),
                 iced::Color::from_rgb8(0, 180, 255),
             );
+        }
+        if !self.active {
+            return vec![frame.into_geometry()];
         }
 
         let pixel_size = self.pixel_size;

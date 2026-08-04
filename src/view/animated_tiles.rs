@@ -278,7 +278,7 @@ pub fn animated_tiles_view(
                         )
                         .width(410)
                         .height(360),
-                        pixel_editor(state, tile, target, frame == 0),
+                        pixel_editor(state, tile, target, false),
                     ]
                     .spacing(15),
                 );

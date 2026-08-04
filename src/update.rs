@@ -90,18 +90,6 @@ fn set_target_pixel(
     Ok(())
 }
 
-fn is_animated_base_tile(state: &EditorState, palette_id: PaletteId, tile: TileIdx) -> bool {
-    state
-        .palettes_id_idx_map
-        .get(&palette_id)
-        .is_some_and(|&palette_idx| {
-            state.palettes[palette_idx]
-                .animated_tile_groups
-                .iter()
-                .any(|group| tile >= group.base_tile && tile < group.base_tile + 16)
-        })
-}
-
 // Avoid processing the same messages multiple times (e.g. when brushing/pasting and
 // dragging with the mouse). This helps limit memory usage in the undo stack and
 // makes it behave more like how users would expect.
@@ -1616,22 +1604,6 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             check_reversible,
         } => {
             assert!(src_selection.size == dst_selection.size);
-            if [&src_selection, &dst_selection].into_iter().any(|selection| {
-                selection
-                    .palettes
-                    .iter()
-                    .zip(&selection.tiles)
-                    .any(|(palettes, tiles)| {
-                        palettes
-                            .iter()
-                            .zip(tiles)
-                            .any(|(&palette, &tile)| is_animated_base_tile(state, palette, tile))
-                    })
-            }) {
-                warn!("Not moving tiles: the selection intersects an animated base row.");
-                state.dialogue = None;
-                return Ok(None);
-            }
             let mut mapping: HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)> =
                 HashMap::new();
 
