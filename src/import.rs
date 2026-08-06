@@ -188,7 +188,7 @@ struct Constants {
     special_gfx_set_addr: SnesAddr,
     tile_types: SnesAddr,
     custom_bg_colors_addr: Option<SnesAddr>,
-    dynamic_tile_offset: u16,
+    us_map16: bool,
     grave_tilemap_addr: SnesAddr,
     grave_reveal_addr: SnesAddr,
 }
@@ -224,7 +224,7 @@ impl Constants {
             special_gfx_set_addr: SnesAddr(0x02E585), // appears incorrect in ZS?
             tile_types: SnesAddr(0x0FFD94),
             custom_bg_colors_addr: None,
-            dynamic_tile_offset: 0,
+            us_map16: false,
             grave_tilemap_addr: SnesAddr(0x099990),
             grave_reveal_addr: SnesAddr(0x0999AE),
         }
@@ -260,7 +260,7 @@ impl Constants {
             special_gfx_set_addr: SnesAddr(0x02E821),
             tile_types: SnesAddr(0x0E9459),
             custom_bg_colors_addr: None,
-            dynamic_tile_offset: 6,
+            us_map16: true,
             grave_tilemap_addr: SnesAddr(0x0999A4),
             grave_reveal_addr: SnesAddr(0x0999C2),
         }
@@ -300,6 +300,22 @@ impl Constants {
             bail!("Unknown ROM format.");
         }
         // TODO: check for expanded 32x32 tiles from ZScream
+    }
+
+    fn convert_map16(&self, idx: u16) -> u16 {
+        if !self.us_map16 {
+            return idx;
+        }
+        // The US version inserted six Map16 entries at different points in the table.
+        idx + match idx {
+            ..=0x023E => 0,
+            ..=0x0391 => 1,
+            ..=0x0395 => 2,
+            ..=0x0881 => 3,
+            ..=0x088D => 4,
+            0x088E => 5,
+            _ => 6,
+        }
     }
 }
 
@@ -1135,7 +1151,7 @@ impl<'a> Importer<'a> {
         &mut self,
         parent: usize,
         map16: &[Vec<u16>],
-        replacement: bool,
+        jp_indices: bool,
     ) -> Result<DynamicTileGrid> {
         let mut gfx_idxs: Vec<u16> = vec![];
         for idx in self.map_gfx[parent] {
@@ -1154,8 +1170,8 @@ impl<'a> Importer<'a> {
         let mut tiles = vec![vec![None; map16[0].len() * 2]; map16.len() * 2];
         for (map_y, row) in map16.iter().enumerate() {
             for (map_x, &tile16_idx) in row.iter().enumerate() {
-                let tile16_idx = if replacement && tile16_idx >= 0x0D9E {
-                    tile16_idx + self.constants.dynamic_tile_offset
+                let tile16_idx = if jp_indices {
+                    self.constants.convert_map16(tile16_idx)
                 } else {
                     tile16_idx
                 };
@@ -1358,16 +1374,19 @@ impl<'a> Importer<'a> {
                 for x in 0..width {
                     let current = map16[y][x];
                     for &(kind, source, replacement) in &small_patterns {
-                        if current == source {
+                        if current == self.constants.convert_map16(source) {
                             self.add_dynamic_variant(
                                 kind,
                                 parent,
-                                vec![vec![source]],
+                                vec![vec![current]],
                                 vec![vec![vec![replacement]]],
                             )?;
                         }
                     }
-                    if dig_tiles.contains(&current) {
+                    if dig_tiles
+                        .iter()
+                        .any(|&tile| current == self.constants.convert_map16(tile))
+                    {
                         self.add_dynamic_variant(
                             DynamicTileType::DigTerrain,
                             parent,
@@ -1380,7 +1399,7 @@ impl<'a> Importer<'a> {
                         let mut quadrant = None;
                         for (source_y, row) in source.iter().enumerate() {
                             for (source_x, &tile) in row.iter().enumerate() {
-                                if current == tile {
+                                if current == self.constants.convert_map16(tile) {
                                     quadrant = Some((source_x, source_y));
                                 }
                             }
