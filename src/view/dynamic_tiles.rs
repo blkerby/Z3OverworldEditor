@@ -44,7 +44,7 @@ fn get_warning_counts(
 ) -> WarningCounts {
     let mut counts = WarningCounts::default();
     for (y, row) in grid.tiles.iter().enumerate() {
-        for placement in row {
+        for (x, placement) in row.iter().enumerate() {
             let Some(placement) = placement else {
                 counts.empty += 1;
                 continue;
@@ -59,7 +59,7 @@ fn get_warning_counts(
             };
             if target == DynamicTileTarget::Before {
                 if let Some(expected) = kind.expected_property() {
-                    if (!kind.is_grave() || y + 1 == grid.tiles.len())
+                    if kind.expects_property_at(x, y, row.len(), grid.tiles.len())
                         && tile.collision != expected
                     {
                         counts.property += 1;
@@ -241,8 +241,12 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
                             }
                             if self.target == DynamicTileTarget::Before {
                                 if let Some(expected) = expected_property {
-                                    property_mismatch = (!self.kind.is_grave()
-                                        || y + 1 == self.grid.tiles.len())
+                                    property_mismatch = self.kind.expects_property_at(
+                                        x,
+                                        y,
+                                        row.len(),
+                                        self.grid.tiles.len(),
+                                    )
                                         && tile.collision != expected;
                                 }
                             }

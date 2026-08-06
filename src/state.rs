@@ -88,10 +88,8 @@ impl DynamicTileType {
             | Self::RockPile
             | Self::SecretStairs
             | Self::SanctuaryDoor
-            | Self::HyruleCastleDoor
-            | Self::GraveCorpse
-            | Self::GraveStairs
-            | Self::GravePit => (4, 4),
+            | Self::HyruleCastleDoor => (4, 4),
+            Self::GraveCorpse | Self::GraveStairs | Self::GravePit => (4, 6),
             Self::SecretBombableEntrance | Self::WoodenDoor => (4, 2),
             _ => (2, 2),
         }
@@ -123,8 +121,13 @@ impl DynamicTileType {
         }
     }
 
-    pub fn is_grave(self) -> bool {
-        matches!(self, Self::GraveCorpse | Self::GraveStairs | Self::GravePit)
+    pub fn expects_property_at(self, x: usize, y: usize, width: usize, height: usize) -> bool {
+        match self {
+            Self::GraveCorpse | Self::GraveStairs | Self::GravePit => {
+                y + 2 == height && (x == width / 2 - 1 || x == width / 2)
+            }
+            _ => true,
+        }
     }
 }
 

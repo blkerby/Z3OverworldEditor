@@ -1538,21 +1538,37 @@ impl<'a> Importer<'a> {
             let (kind, after) = match revealed {
                 0x30 => (
                     DynamicTileType::GraveCorpse,
-                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DCD, 0x0DCE]],
+                    vec![
+                        vec![0x0DCB, 0x0DCC],
+                        vec![0x0DCD, 0x0DCE],
+                        vec![0x0DCF, 0x0DD0],
+                    ],
                 ),
                 0x38 => (
                     DynamicTileType::GraveStairs,
-                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DD1, 0x0DD2]],
+                    vec![
+                        vec![0x0DCB, 0x0DCC],
+                        vec![0x0DD1, 0x0DD2],
+                        vec![0x0DD3, 0x0DD4],
+                    ],
                 ),
                 0x58 => (
                     DynamicTileType::GravePit,
-                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DD5, 0x0DD6]],
+                    vec![
+                        vec![0x0DCB, 0x0DCC],
+                        vec![0x0DD5, 0x0DD6],
+                        vec![0x0DD7, 0x0DD8],
+                    ],
                 ),
                 _ => continue,
             };
             let x = (offset & 0x7F) / 2;
             let y = offset / 0x80;
+            if y == 0 || y + 1 >= grave_map.len() || x + 1 >= grave_map[0].len() {
+                continue;
+            }
             let before = vec![
+                grave_map[y - 1][x..x + 2].to_vec(),
                 grave_map[y][x..x + 2].to_vec(),
                 grave_map[y + 1][x..x + 2].to_vec(),
             ];
