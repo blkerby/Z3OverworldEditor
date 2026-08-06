@@ -35,10 +35,12 @@ pub enum Message {
     OpenDynamicTiles,
     CloseDynamicTiles,
     SelectDynamicTileType(DynamicTileType),
-    SelectDynamicTileVariant(usize),
-    SelectDynamicTileFrame(usize),
+    SelectDynamicTileFrame {
+        variant: usize,
+        frame: usize,
+    },
     AddDynamicTileVariant,
-    DeleteDynamicTileVariant,
+    DeleteDynamicTileVariant(usize),
     SetDynamicTileVariants {
         kind: DynamicTileType,
         variants: Vec<DynamicTileVariant>,

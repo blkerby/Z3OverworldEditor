@@ -1,7 +1,10 @@
 use hashbrown::HashMap;
 use iced::{
     mouse,
-    widget::{button, canvas, column, container, horizontal_space, pick_list, row, text, tooltip},
+    widget::{
+        button, canvas, column, container, horizontal_space, pick_list, row, scrollable, text,
+        tooltip,
+    },
     Element, Length, Point, Rectangle, Size,
 };
 
@@ -9,21 +12,12 @@ use crate::{
     helpers::scale_color,
     message::{Message, SelectionSource},
     state::{
-        DynamicTileGrid, DynamicTileTarget, DynamicTileType, EditorState, Palette, PaletteId,
-        TileBlock, TileCoord, Tool,
+        DynamicTileGrid, DynamicTileTarget, DynamicTileType, EditorState, Focus, Palette,
+        PaletteId, TileBlock, TileCoord, Tool,
     },
 };
 
 const PIXEL_SIZE: f32 = 3.0;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct VariantChoice(usize);
-
-impl std::fmt::Display for VariantChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Variant {}", self.0 + 1)
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FrameChoice(usize);
@@ -154,7 +148,14 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
                             state.action = Action::Selecting;
                             return (
                                 canvas::event::Status::Captured,
-                                Some(Message::StartTileSelection(coords, self.selection_source)),
+                                Some(Message::StartTileSelection(
+                                    coords,
+                                    SelectionSource::DynamicTiles {
+                                        kind: self.kind,
+                                        variant: self.variant,
+                                        target: self.target,
+                                    },
+                                )),
                             );
                         }
                         _ => {}
@@ -271,21 +272,21 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
                     }
                 }
 
-                let outline = if broken {
-                    iced::Color::from_rgb8(255, 0, 0)
-                } else if property_mismatch {
-                    iced::Color::from_rgb8(255, 170, 0)
-                } else {
-                    iced::Color::from_rgba8(255, 255, 255, 0.25)
-                };
-                frame.stroke(
-                    &canvas::Path::rectangle(origin, Size::new(tile_size, tile_size)),
-                    canvas::Stroke {
-                        style: canvas::stroke::Style::Solid(outline),
-                        width: if broken || property_mismatch { 2.0 } else { 1.0 },
-                        ..Default::default()
-                    },
-                );
+                if broken || property_mismatch {
+                    let outline = if broken {
+                        iced::Color::from_rgb8(255, 0, 0)
+                    } else {
+                        iced::Color::from_rgb8(255, 170, 0)
+                    };
+                    frame.stroke(
+                        &canvas::Path::rectangle(origin, Size::new(tile_size, tile_size)),
+                        canvas::Stroke {
+                            style: canvas::stroke::Style::Solid(outline),
+                            width: 2.0,
+                            ..Default::default()
+                        },
+                    );
+                }
             }
         }
 
@@ -330,6 +331,7 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
 
 fn grid_view<'a>(
     state: &'a EditorState,
+    variant: usize,
     grid: &'a DynamicTileGrid,
     target: DynamicTileTarget,
 ) -> Element<'a, Message> {
@@ -337,7 +339,7 @@ fn grid_view<'a>(
     let (width, height) = kind.size();
     canvas(DynamicGrid {
         kind,
-        variant: state.dynamic_tile_variant,
+        variant,
         target,
         grid,
         palettes: &state.palettes,
@@ -389,8 +391,6 @@ pub fn dynamic_tiles_view(state: &EditorState) -> Element<'_, Message> {
         .groups
         .iter()
         .find(|group| group.kind == kind);
-    let variant_count = group.map_or(0, |group| group.variants.len());
-    let variant_choices: Vec<VariantChoice> = (0..variant_count).map(VariantChoice).collect();
 
     let close_button = tooltip(
         button(text("×").size(22)).on_press(Message::CloseDynamicTiles),
@@ -407,80 +407,111 @@ pub fn dynamic_tiles_view(state: &EditorState) -> Element<'_, Message> {
                 Some(kind),
                 Message::SelectDynamicTileType
             )
+            .on_open(Message::Focus(Focus::PickDynamicTileType))
             .width(Length::Fill),
         ]
         .spacing(8)
         .align_y(iced::alignment::Vertical::Center),
         row![
-            pick_list(
-                variant_choices,
-                group.and_then(|group| {
-                    if state.dynamic_tile_variant < group.variants.len() {
-                        Some(VariantChoice(state.dynamic_tile_variant))
-                    } else {
-                        None
-                    }
-                }),
-                |choice| Message::SelectDynamicTileVariant(choice.0)
-            )
-            .width(Length::Fill),
+            text("Variants"),
+            horizontal_space(),
             button("+")
                 .style(button::success)
                 .on_press(Message::AddDynamicTileVariant),
-            button(text("\u{F63B}").font(iced_fonts::BOOTSTRAP_FONT))
-                .style(button::danger)
-                .on_press_maybe(if variant_count > 0 {
-                    Some(Message::DeleteDynamicTileVariant)
-                } else {
-                    None
-                }),
         ]
-        .spacing(8),
+        .align_y(iced::alignment::Vertical::Center),
     ]
     .spacing(10);
 
-    if let Some(variant) = group.and_then(|group| group.variants.get(state.dynamic_tile_variant)) {
-        let frame = state
-            .dynamic_tile_frame
-            .min(variant.after_frames.len() - 1);
-        let before = column![
-            text("Before"),
-            grid_view(state, &variant.before, DynamicTileTarget::Before),
-            warning_view(state, &variant.before, DynamicTileTarget::Before),
-        ]
-        .spacing(5);
+    let mut variants = column![].spacing(8);
+    if let Some(group) = group {
+        let grid_width = kind.size().0 as f32 * 8.0 * PIXEL_SIZE;
+        let column_width = grid_width.max(64.0);
+        if !group.variants.is_empty() {
+            variants = variants.push(
+                row![
+                    row![
+                        container(text("Before"))
+                            .width(column_width)
+                            .align_x(iced::alignment::Horizontal::Center),
+                        container(text("After"))
+                            .width(column_width)
+                            .align_x(iced::alignment::Horizontal::Center),
+                    ]
+                    .spacing(16),
+                    horizontal_space(),
+                ]
+                .spacing(8)
+            );
+        }
+        for (variant_idx, variant) in group.variants.iter().enumerate() {
+            let frame = state
+                .dynamic_tile_frames
+                .get(variant_idx)
+                .copied()
+                .unwrap_or(0)
+                .min(variant.after_frames.len() - 1);
+            let frame_choices: Vec<FrameChoice> =
+                (0..variant.after_frames.len()).map(FrameChoice).collect();
+            let before = column![
+                grid_view(
+                    state,
+                    variant_idx,
+                    &variant.before,
+                    DynamicTileTarget::Before
+                ),
+                warning_view(state, &variant.before, DynamicTileTarget::Before),
+            ]
+            .spacing(5)
+            .width(column_width)
+            .align_x(iced::alignment::Horizontal::Center);
 
-        let frame_choices: Vec<FrameChoice> = (0..variant.after_frames.len())
-            .map(FrameChoice)
-            .collect();
-        let after_header: Element<Message> = if frame_choices.len() > 1 {
-            pick_list(frame_choices, Some(FrameChoice(frame)), |choice| {
-                Message::SelectDynamicTileFrame(choice.0)
-            })
-            .width(Length::Fill)
-            .into()
-        } else {
-            text("After").into()
-        };
-        let after = column![
-            after_header,
-            grid_view(state, &variant.after_frames[frame], DynamicTileTarget::After(frame)),
-            warning_view(
-                state,
-                &variant.after_frames[frame],
-                DynamicTileTarget::After(frame)
-            ),
-        ]
-        .spacing(5);
+            let after = column![
+                grid_view(
+                    state,
+                    variant_idx,
+                    &variant.after_frames[frame],
+                    DynamicTileTarget::After(frame)
+                ),
+                warning_view(
+                    state,
+                    &variant.after_frames[frame],
+                    DynamicTileTarget::After(frame)
+                ),
+            ]
+            .spacing(5)
+            .width(column_width)
+            .align_x(iced::alignment::Horizontal::Center);
 
-        content = content.push(row![before, after].spacing(10));
-    } else {
-        content = content.push(text("Add a variant to begin."));
+            let mut variant_row =
+                row![row![before, after].spacing(16), horizontal_space()].spacing(8);
+            if frame_choices.len() > 1 {
+                variant_row = variant_row.push(
+                    pick_list(frame_choices, Some(FrameChoice(frame)), move |choice| {
+                        Message::SelectDynamicTileFrame {
+                            variant: variant_idx,
+                            frame: choice.0,
+                        }
+                    })
+                    .width(90),
+                );
+            }
+            variant_row = variant_row.push(
+                button(text("\u{F63B}").font(iced_fonts::BOOTSTRAP_FONT))
+                    .style(button::danger)
+                    .on_press(Message::DeleteDynamicTileVariant(variant_idx)),
+            );
+            variants = variants.push(variant_row.align_y(iced::alignment::Vertical::Center));
+        }
     }
+    if group.is_none_or(|group| group.variants.is_empty()) {
+        variants = variants.push(text("Add a variant to begin."));
+    }
+    content = content.push(scrollable(variants).spacing(8).height(Length::Fill));
 
     container(content)
         .padding(12)
-        .width(340)
+        .width(410)
         .height(Length::Fill)
         .into()
 }

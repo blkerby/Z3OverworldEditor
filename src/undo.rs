@@ -32,10 +32,9 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::OpenDynamicTiles => UndoAction::None,
         Message::CloseDynamicTiles => UndoAction::None,
         Message::SelectDynamicTileType(_) => UndoAction::None,
-        Message::SelectDynamicTileVariant(_) => UndoAction::None,
-        Message::SelectDynamicTileFrame(_) => UndoAction::None,
+        Message::SelectDynamicTileFrame { .. } => UndoAction::None,
         Message::AddDynamicTileVariant
-        | Message::DeleteDynamicTileVariant => {
+        | Message::DeleteDynamicTileVariant(_) => {
             let kind = state.dynamic_tile_type;
             let variants = state
                 .dynamic_tiles

@@ -673,7 +673,6 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.undo_stack.clear();
     state.redo_stack.clear();
     state.dynamic_tiles_open = false;
-    state.dynamic_tile_variant = 0;
-    state.dynamic_tile_frame = 0;
+    state.dynamic_tile_frames.clear();
     Ok(())
 }

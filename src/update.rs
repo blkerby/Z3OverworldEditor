@@ -16,9 +16,9 @@ use crate::{
     },
     state::{
         Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, DynamicTileGrid,
-        DynamicTileGroup, DynamicTilePlacement, DynamicTileTarget, DynamicTileVariant, EditorState,
-        Flip, Focus, PaletteId, PixelTarget, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool,
-        MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
+        DynamicTileGroup, DynamicTilePlacement, DynamicTileTarget, DynamicTileType,
+        DynamicTileVariant, EditorState, Flip, Focus, PaletteId, PixelTarget, Screen,
+        SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -228,6 +228,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         state.identify_tile = modifiers.control();
                     }
                     Focus::PickPalette => {}
+                    Focus::PickDynamicTileType => {}
                     Focus::PaletteColor | Focus::GraphicsPixel => {
                         state.identify_color = modifiers.control();
                     }
@@ -266,6 +267,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         // TODO: Handle making selections with keyboard:
                     }
                     Focus::PickPalette => {}
+                    Focus::PickDynamicTileType => {}
                     Focus::PaletteColor => {
                         if let Some(idx) = state.color_idx {
                             if idx < 15 {
@@ -309,6 +311,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         // TODO: Handle making selections with keyboard:
                     }
                     Focus::PickPalette => {}
+                    Focus::PickDynamicTileType => {}
                     Focus::PaletteColor => {
                         if let Some(idx) = state.color_idx {
                             if idx > 0 {
@@ -388,6 +391,18 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             state.pixel_coords = None;
                         }
                     }
+                    Focus::PickDynamicTileType => {
+                        if let Some(kind_idx) = DynamicTileType::ALL
+                            .iter()
+                            .position(|kind| kind == &state.dynamic_tile_type)
+                        {
+                            if kind_idx + 1 < DynamicTileType::ALL.len() {
+                                return Ok(Some(Task::done(Message::SelectDynamicTileType(
+                                    DynamicTileType::ALL[kind_idx + 1],
+                                ))));
+                            }
+                        }
+                    }
                     Focus::PaletteColor => {}
                     Focus::GraphicsPixel => {
                         if let Some(coords) = state.pixel_coords {
@@ -456,6 +471,18 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             state.tile_idx = None;
                             state.pixel_target = None;
                             state.pixel_coords = None;
+                        }
+                    }
+                    Focus::PickDynamicTileType => {
+                        if let Some(kind_idx) = DynamicTileType::ALL
+                            .iter()
+                            .position(|kind| kind == &state.dynamic_tile_type)
+                        {
+                            if kind_idx > 0 {
+                                return Ok(Some(Task::done(Message::SelectDynamicTileType(
+                                    DynamicTileType::ALL[kind_idx - 1],
+                                ))));
+                            }
                         }
                     }
                     Focus::PaletteColor => {}
@@ -637,21 +664,30 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         Message::OpenDynamicTiles => {
             state.dialogue = None;
             state.dynamic_tiles_open = true;
+            let count = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .find(|group| group.kind == state.dynamic_tile_type)
+                .map_or(0, |group| group.variants.len());
+            state.dynamic_tile_frames = vec![0; count];
         }
         Message::CloseDynamicTiles => {
             state.dynamic_tiles_open = false;
         }
         Message::SelectDynamicTileType(kind) => {
             state.dynamic_tile_type = *kind;
-            state.dynamic_tile_variant = 0;
-            state.dynamic_tile_frame = 0;
+            let count = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .find(|group| group.kind == *kind)
+                .map_or(0, |group| group.variants.len());
+            state.dynamic_tile_frames = vec![0; count];
         }
-        Message::SelectDynamicTileVariant(variant) => {
-            state.dynamic_tile_variant = *variant;
-            state.dynamic_tile_frame = 0;
-        }
-        Message::SelectDynamicTileFrame(frame) => {
-            state.dynamic_tile_frame = *frame;
+        Message::SelectDynamicTileFrame { variant, frame } => {
+            state.dynamic_tile_frames.resize(*variant + 1, 0);
+            state.dynamic_tile_frames[*variant] = *frame;
         }
         Message::AddDynamicTileVariant => {
             let kind = state.dynamic_tile_type;
@@ -678,11 +714,13 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 after_frames: vec![empty_grid; kind.after_frame_count()],
             };
             state.dynamic_tiles.groups[group_idx].variants.push(variant);
-            state.dynamic_tile_variant = state.dynamic_tiles.groups[group_idx].variants.len() - 1;
-            state.dynamic_tile_frame = 0;
+            state.dynamic_tile_frames.resize(
+                state.dynamic_tiles.groups[group_idx].variants.len(),
+                0,
+            );
             state.dynamic_tiles.modified = true;
         }
-        Message::DeleteDynamicTileVariant => {
+        Message::DeleteDynamicTileVariant(variant) => {
             let kind = state.dynamic_tile_type;
             if let Some(group_idx) = state
                 .dynamic_tiles
@@ -691,16 +729,16 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 .position(|group| group.kind == kind)
             {
                 let variants = &mut state.dynamic_tiles.groups[group_idx].variants;
-                if state.dynamic_tile_variant < variants.len() {
-                    variants.remove(state.dynamic_tile_variant);
-                    if state.dynamic_tile_variant >= variants.len() && !variants.is_empty() {
-                        state.dynamic_tile_variant = variants.len() - 1;
-                    }
+                if *variant < variants.len() {
+                    variants.remove(*variant);
                     if variants.is_empty() {
                         state.dynamic_tiles.groups.remove(group_idx);
-                        state.dynamic_tile_variant = 0;
                     }
-                    state.dynamic_tile_frame = 0;
+                    if *variant < state.dynamic_tile_frames.len() {
+                        state.dynamic_tile_frames.remove(*variant);
+                    }
+                    state.start_coords = None;
+                    state.end_coords = None;
                     state.dynamic_tiles.modified = true;
                 }
             }
@@ -724,10 +762,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 });
             }
             state.dynamic_tiles.groups.sort_by_key(|group| group.kind);
-            state.dynamic_tile_variant = state
-                .dynamic_tile_variant
-                .min(variants.len().saturating_sub(1));
-            state.dynamic_tile_frame = 0;
+            if *kind == state.dynamic_tile_type {
+                state.dynamic_tile_frames = vec![0; variants.len()];
+            }
             state.dynamic_tiles.modified = true;
         }
         Message::DynamicTileBrush {

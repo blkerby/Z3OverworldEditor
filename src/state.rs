@@ -518,6 +518,7 @@ pub enum Focus {
     PickTheme(AreaPosition),
     Area(AreaPosition),
     PickPalette,
+    PickDynamicTileType,
     PaletteColor,
     GraphicsPixel,
     TilesetTile,
@@ -571,8 +572,7 @@ pub struct EditorState {
     pub side_panel_view: SidePanelView,
     pub dynamic_tiles_open: bool,
     pub dynamic_tile_type: DynamicTileType,
-    pub dynamic_tile_variant: usize,
-    pub dynamic_tile_frame: usize,
+    pub dynamic_tile_frames: Vec<usize>,
 
     // Palette editing state:
     pub palette_idx: PaletteIdx,
@@ -803,8 +803,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         side_panel_view: SidePanelView::default(),
         dynamic_tiles_open: false,
         dynamic_tile_type: DynamicTileType::CutGrass,
-        dynamic_tile_variant: 0,
-        dynamic_tile_frame: 0,
+        dynamic_tile_frames: vec![],
         focus: Focus::None,
         palette_idx: 0,
         color_idx: None,

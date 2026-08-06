@@ -1,5 +1,5 @@
 use anyhow::{bail, ensure, Result};
-use hashbrown::{hash_map::Entry, HashMap, HashSet};
+use hashbrown::{hash_map::Entry, HashMap};
 use itertools::Itertools;
 use log::{info, warn};
 use std::{
@@ -1346,13 +1346,6 @@ impl<'a> Importer<'a> {
         ];
         let large_after = vec![vec![0x0DC7, 0x0DC8], vec![0x0DC9, 0x0DCA]];
 
-        let mut valid_doors = HashSet::new();
-        for i in 0..44 {
-            let left = self.rom.read_u16((SnesAddr(0x1BB8BF) + i * 2).into())?;
-            let right = self.rom.read_u16((SnesAddr(0x1BB917) + i * 2).into())?;
-            valid_doors.insert((left, right));
-        }
-
         for parent in 0..=0x81 {
             if self.map_parents[parent] as usize != parent {
                 continue;
@@ -1416,6 +1409,17 @@ impl<'a> Importer<'a> {
                 }
             }
 
+            if parent == 0x18 {
+                for (x, y) in [(0x0C, 0x17), (0x34, 0x1B)] {
+                    self.add_dynamic_variant(
+                        DynamicTileType::WoodenDoor,
+                        parent,
+                        vec![vec![map16[y][x], map16[y][x + 1]]],
+                        vec![vec![vec![0x0D9E, 0x0DA0]]],
+                    )?;
+                }
+            }
+
             'entrances: for entrance in 0..129 {
                 let screen = self
                     .rom
@@ -1435,18 +1439,6 @@ impl<'a> Importer<'a> {
                 }
                 for door_y in y..=(y + 1).min(height - 1) {
                     let tile16 = self.tiles16[map16[door_y][x] as usize];
-                    if x + 1 < width
-                        && valid_doors.contains(&(tile16[2].gfx_char, tile16[3].gfx_char))
-                    {
-                        self.add_dynamic_variant(
-                            DynamicTileType::WoodenDoor,
-                            parent,
-                            vec![vec![map16[door_y][x], map16[door_y][x + 1]]],
-                            vec![vec![vec![0x0D9E, 0x0DA0]]],
-                        )?;
-                        continue 'entrances;
-                    }
-
                     let (door_x, door_gfx) = if tile16[1].flip == Flip::None {
                         (x, tile16[1].gfx_char)
                     } else if x > 0 && tile16[0].flip == Flip::Horizontal {
