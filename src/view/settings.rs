@@ -67,10 +67,12 @@ pub fn settings_view(state: &EditorState) -> Element<'_, Message> {
                     .style(button::secondary)
                     .on_press(Message::CloseDialogue),
                 horizontal_space(),
+                button("Edit dynamic tiles…").on_press(Message::OpenDynamicTiles),
                 button("Import from ROM")
                     .style(button::danger)
                     .on_press(Message::ImportDialogue)
             ]
+            .spacing(10)
         ]
         .spacing(20),
     )

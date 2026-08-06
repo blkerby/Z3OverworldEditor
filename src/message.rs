@@ -3,14 +3,20 @@ use std::path::PathBuf;
 use iced::Point;
 
 use crate::state::{
-    AnimatedTileGroup, AreaId, AreaPosition, CollisionType, ColorIdx, ColorRGB, ColorValue, Focus,
-    Palette, PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
+    AnimatedTileGroup, AreaId, AreaPosition, CollisionType, ColorIdx, ColorRGB, ColorValue,
+    DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus, Palette, PaletteId, PaletteIdx,
+    PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SelectionSource {
     Area(AreaPosition),
     Tileset,
+    DynamicTiles {
+        kind: DynamicTileType,
+        variant: usize,
+        target: DynamicTileTarget,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +32,24 @@ pub enum Message {
     RebuildProject,
     ProjectOpened(Option<PathBuf>),
     SettingsDialogue,
+    OpenDynamicTiles,
+    CloseDynamicTiles,
+    SelectDynamicTileType(DynamicTileType),
+    SelectDynamicTileVariant(usize),
+    SelectDynamicTileFrame(usize),
+    AddDynamicTileVariant,
+    DeleteDynamicTileVariant,
+    SetDynamicTileVariants {
+        kind: DynamicTileType,
+        variants: Vec<DynamicTileVariant>,
+    },
+    DynamicTileBrush {
+        kind: DynamicTileType,
+        variant: usize,
+        target: DynamicTileTarget,
+        coords: Point<TileCoord>,
+        selection: TileBlock,
+    },
     HelpDialogue,
     SetPixelSize(f32),
     SetGridAlpha(f32),

@@ -29,6 +29,36 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::RebuildProject => UndoAction::None,
         Message::ProjectOpened(_) => UndoAction::Irreversible,
         Message::SettingsDialogue => UndoAction::None,
+        Message::OpenDynamicTiles => UndoAction::None,
+        Message::CloseDynamicTiles => UndoAction::None,
+        Message::SelectDynamicTileType(_) => UndoAction::None,
+        Message::SelectDynamicTileVariant(_) => UndoAction::None,
+        Message::SelectDynamicTileFrame(_) => UndoAction::None,
+        Message::AddDynamicTileVariant
+        | Message::DeleteDynamicTileVariant => {
+            let kind = state.dynamic_tile_type;
+            let variants = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .find(|group| group.kind == kind)
+                .map(|group| group.variants.clone())
+                .unwrap_or_default();
+            UndoAction::Ok(Message::SetDynamicTileVariants { kind, variants })
+        }
+        Message::DynamicTileBrush { kind, .. } | Message::SetDynamicTileVariants { kind, .. } => {
+            let variants = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .find(|group| group.kind == *kind)
+                .map(|group| group.variants.clone())
+                .unwrap_or_default();
+            UndoAction::Ok(Message::SetDynamicTileVariants {
+                kind: *kind,
+                variants,
+            })
+        }
         Message::HelpDialogue => UndoAction::None,
         Message::SetPixelSize(_) => UndoAction::None,
         Message::SetGridAlpha(_) => UndoAction::None,

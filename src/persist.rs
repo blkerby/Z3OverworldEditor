@@ -17,7 +17,7 @@ use crate::{
     helpers::scale_color,
     state::{
         ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId,
-        AreaPosition, EditorState, Flip, Palette, PaletteId, TileIdx,
+        AreaPosition, DynamicTiles, EditorState, Flip, Palette, PaletteId, TileIdx,
     },
     update::update_palette_order,
 };
@@ -66,6 +66,59 @@ fn get_project_dir(state: &EditorState) -> Result<PathBuf> {
 
 fn get_palette_dir(state: &EditorState) -> Result<PathBuf> {
     Ok(get_project_dir(state)?.join("Palettes"))
+}
+
+fn get_dynamic_tiles_path(state: &EditorState) -> Result<PathBuf> {
+    Ok(get_project_dir(state)?
+        .join("DynamicTiles")
+        .join("replacements.json"))
+}
+
+fn load_dynamic_tiles(state: &mut EditorState) -> Result<()> {
+    let path = get_dynamic_tiles_path(state)?;
+    if !path.exists() {
+        state.dynamic_tiles = DynamicTiles::default();
+        return Ok(());
+    }
+
+    let mut dynamic_tiles: DynamicTiles = load_json(&path)?;
+    let mut kinds = HashSet::new();
+    for group in &dynamic_tiles.groups {
+        if !kinds.insert(group.kind) {
+            bail!("duplicate dynamic tile type: {}", group.kind);
+        }
+        let (width, height) = group.kind.size();
+        for variant in &group.variants {
+            if variant.before.tiles.len() != height
+                || variant.before.tiles.iter().any(|row| row.len() != width)
+            {
+                bail!("invalid Before grid size for {}", group.kind);
+            }
+            if variant.after_frames.len() != group.kind.after_frame_count() {
+                bail!("invalid After frame count for {}", group.kind);
+            }
+            for frame in &variant.after_frames {
+                if frame.tiles.len() != height || frame.tiles.iter().any(|row| row.len() != width) {
+                    bail!("invalid After grid size for {}", group.kind);
+                }
+            }
+        }
+    }
+    dynamic_tiles.groups.sort_by_key(|group| group.kind);
+    dynamic_tiles.modified = false;
+    state.dynamic_tiles = dynamic_tiles;
+    Ok(())
+}
+
+fn save_dynamic_tiles(state: &mut EditorState) -> Result<()> {
+    if state.dynamic_tiles.modified {
+        state.disable_watch_file_changes()?;
+        state.dynamic_tiles.groups.sort_by_key(|group| group.kind);
+        save_json(&get_dynamic_tiles_path(state)?, &state.dynamic_tiles)?;
+        state.dynamic_tiles.modified = false;
+        state.enable_watch_file_changes()?;
+    }
+    Ok(())
 }
 
 fn save_palette_colors_png(png_path: &Path, palette: &Palette) -> Result<()> {
@@ -462,6 +515,22 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
             }
         }
     }
+    for group in &state.dynamic_tiles.groups {
+        for variant in &group.variants {
+            for row in &variant.before.tiles {
+                for placement in row.iter().flatten() {
+                    out.insert((placement.palette, placement.tile));
+                }
+            }
+            for frame in &variant.after_frames {
+                for row in &frame.tiles {
+                    for placement in row.iter().flatten() {
+                        out.insert((placement.palette, placement.tile));
+                    }
+                }
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -496,6 +565,39 @@ pub fn remap_tiles(
             state.cleanup_areas()?;
         }
     }
+
+    let mut dynamic_tiles_modified = false;
+    for group in &mut state.dynamic_tiles.groups {
+        for variant in &mut group.variants {
+            for row in &mut variant.before.tiles {
+                for placement in row.iter_mut().flatten() {
+                    if let Some(&(palette, tile, flip)) =
+                        map.get(&(placement.palette, placement.tile))
+                    {
+                        placement.palette = palette;
+                        placement.tile = tile;
+                        placement.flip = flip.apply_to_flip(placement.flip);
+                        dynamic_tiles_modified = true;
+                    }
+                }
+            }
+            for frame in &mut variant.after_frames {
+                for row in &mut frame.tiles {
+                    for placement in row.iter_mut().flatten() {
+                        if let Some(&(palette, tile, flip)) =
+                            map.get(&(placement.palette, placement.tile))
+                        {
+                            placement.palette = palette;
+                            placement.tile = tile;
+                            placement.flip = flip.apply_to_flip(placement.flip);
+                            dynamic_tiles_modified = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    state.dynamic_tiles.modified |= dynamic_tiles_modified;
     Ok(())
 }
 
@@ -505,6 +607,7 @@ pub fn save_project(state: &mut EditorState) -> Result<()> {
     }
     save_global_config(state)?;
     save_palettes(state)?;
+    save_dynamic_tiles(state)?;
     save_area(state, &state.main_area_id.clone())?;
     save_area(state, &state.side_area_id.clone())?;
     Ok(())
@@ -544,13 +647,10 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     }
 
     // Set up watcher on the project directories:
-    let watch_locations = ["Areas", "Palettes"];
     state.watch_paths.clear();
-    for loc in watch_locations {
-        state
-            .watch_paths
-            .push(state.global_config.project_dir.as_ref().unwrap().join(loc));
-    }
+    state
+        .watch_paths
+        .push(state.global_config.project_dir.as_ref().unwrap().clone());
     state.watcher = Some(recommended_watcher(FileModificationHandler::new(
         state.files_modified_notification.clone(),
     ))?);
@@ -558,6 +658,7 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.enable_watch_file_changes()?;
 
     load_palettes(state)?;
+    load_dynamic_tiles(state)?;
     load_area_list(state)?;
     let area_id = AreaId {
         area: state.area_names[0].clone(),
@@ -571,5 +672,8 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.tile_idx = None;
     state.undo_stack.clear();
     state.redo_stack.clear();
+    state.dynamic_tiles_open = false;
+    state.dynamic_tile_variant = 0;
+    state.dynamic_tile_frame = 0;
     Ok(())
 }

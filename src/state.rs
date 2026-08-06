@@ -28,6 +28,172 @@ pub type CollisionType = u8;
 pub type ColorRGB = [ColorValue; 3];
 pub type TilePixels = [[ColorIdx; 8]; 8];
 
+#[derive(
+    Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum DynamicTileType {
+    CutGrass,
+    DigTerrain,
+    GreenBush,
+    HeavyBush,
+    HammerPeg,
+    LiftSign,
+    SmallGrayRock,
+    SmallBlackRock,
+    LargeGrayRock,
+    LargeBlackRock,
+    RockPile,
+    SecretHole,
+    SecretPortal,
+    SecretBombableEntrance,
+    SecretStairs,
+    WoodenDoor,
+    SanctuaryDoor,
+    HyruleCastleDoor,
+    GraveCorpse,
+    GraveStairs,
+    GravePit,
+}
+
+impl DynamicTileType {
+    pub const ALL: [Self; 21] = [
+        Self::CutGrass,
+        Self::DigTerrain,
+        Self::GreenBush,
+        Self::HeavyBush,
+        Self::HammerPeg,
+        Self::LiftSign,
+        Self::SmallGrayRock,
+        Self::SmallBlackRock,
+        Self::LargeGrayRock,
+        Self::LargeBlackRock,
+        Self::RockPile,
+        Self::SecretHole,
+        Self::SecretPortal,
+        Self::SecretBombableEntrance,
+        Self::SecretStairs,
+        Self::WoodenDoor,
+        Self::SanctuaryDoor,
+        Self::HyruleCastleDoor,
+        Self::GraveCorpse,
+        Self::GraveStairs,
+        Self::GravePit,
+    ];
+
+    pub fn size(self) -> (usize, usize) {
+        match self {
+            Self::LargeGrayRock
+            | Self::LargeBlackRock
+            | Self::RockPile
+            | Self::SecretStairs
+            | Self::SanctuaryDoor
+            | Self::HyruleCastleDoor
+            | Self::GraveCorpse
+            | Self::GraveStairs
+            | Self::GravePit => (4, 4),
+            Self::SecretBombableEntrance | Self::WoodenDoor => (4, 2),
+            _ => (2, 2),
+        }
+    }
+
+    pub fn after_frame_count(self) -> usize {
+        match self {
+            Self::SanctuaryDoor => 3,
+            Self::HyruleCastleDoor => 2,
+            _ => 1,
+        }
+    }
+
+    pub fn expected_property(self) -> Option<CollisionType> {
+        match self {
+            Self::CutGrass => Some(0x40),
+            Self::DigTerrain => Some(0x48),
+            Self::GreenBush => Some(0x50),
+            Self::HeavyBush => Some(0x51),
+            Self::HammerPeg => Some(0x27),
+            Self::LiftSign => Some(0x54),
+            Self::SmallGrayRock => Some(0x52),
+            Self::SmallBlackRock => Some(0x53),
+            Self::LargeGrayRock => Some(0x55),
+            Self::LargeBlackRock => Some(0x56),
+            Self::RockPile => Some(0x57),
+            Self::GraveCorpse | Self::GraveStairs | Self::GravePit => Some(0x42),
+            _ => None,
+        }
+    }
+
+    pub fn is_grave(self) -> bool {
+        matches!(self, Self::GraveCorpse | Self::GraveStairs | Self::GravePit)
+    }
+}
+
+impl std::fmt::Display for DynamicTileType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CutGrass => "Cut grass",
+            Self::DigTerrain => "Dig terrain",
+            Self::GreenBush => "Cut/lift green bush",
+            Self::HeavyBush => "Cut/lift heavy bush",
+            Self::HammerPeg => "Hammer peg",
+            Self::LiftSign => "Lift sign",
+            Self::SmallGrayRock => "Lift small gray rock",
+            Self::SmallBlackRock => "Lift small black rock",
+            Self::LargeGrayRock => "Lift large gray rock",
+            Self::LargeBlackRock => "Lift large black rock",
+            Self::RockPile => "Dash through rock pile",
+            Self::SecretHole => "Reveal hole",
+            Self::SecretPortal => "Reveal portal",
+            Self::SecretBombableEntrance => "Reveal bombable entrance",
+            Self::SecretStairs => "Reveal stairs",
+            Self::WoodenDoor => "Open wooden door",
+            Self::SanctuaryDoor => "Open Sanctuary door",
+            Self::HyruleCastleDoor => "Open Hyrule Castle door",
+            Self::GraveCorpse => "Open grave with corpse",
+            Self::GraveStairs => "Open grave with stairs",
+            Self::GravePit => "Open grave with pit",
+        })
+    }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DynamicTilePlacement {
+    pub palette: PaletteId,
+    pub tile: TileIdx,
+    pub flip: Flip,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum DynamicTileTarget {
+    Before,
+    After(usize),
+}
+
+#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct DynamicTileGrid {
+    pub tiles: Vec<Vec<Option<DynamicTilePlacement>>>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DynamicTileVariant {
+    pub before: DynamicTileGrid,
+    pub after_frames: Vec<DynamicTileGrid>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct DynamicTileGroup {
+    #[serde(rename = "type")]
+    pub kind: DynamicTileType,
+    pub variants: Vec<DynamicTileVariant>,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct DynamicTiles {
+    #[serde(skip)]
+    pub modified: bool,
+    pub groups: Vec<DynamicTileGroup>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AreaId {
     pub area: AreaName,
@@ -386,6 +552,7 @@ pub struct EditorState {
     // Project data: Areas are loaded/unloaded dynamically
     // to limit memory usage and start-up time. Everything else is fully loaded.
     pub palettes: Vec<Palette>,
+    pub dynamic_tiles: DynamicTiles,
     pub areas: HashMap<AreaId, Area>,
     pub area_names: Vec<AreaName>,
     pub theme_names: Vec<ThemeName>,
@@ -402,6 +569,10 @@ pub struct EditorState {
     pub tool: Tool,
     pub shift_brush: bool,
     pub side_panel_view: SidePanelView,
+    pub dynamic_tiles_open: bool,
+    pub dynamic_tile_type: DynamicTileType,
+    pub dynamic_tile_variant: usize,
+    pub dynamic_tile_frame: usize,
 
     // Palette editing state:
     pub palette_idx: PaletteIdx,
@@ -613,6 +784,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         global_config: GlobalConfig::default(),
         rom_path: None,
         palettes: vec![],
+        dynamic_tiles: DynamicTiles::default(),
         areas: HashMap::new(),
         main_area_id: AreaId {
             area: "Example".to_string(),
@@ -629,6 +801,10 @@ pub fn get_initial_state() -> Result<EditorState> {
         tool: Tool::default(),
         shift_brush: false,
         side_panel_view: SidePanelView::default(),
+        dynamic_tiles_open: false,
+        dynamic_tile_type: DynamicTileType::CutGrass,
+        dynamic_tile_variant: 0,
+        dynamic_tile_frame: 0,
         focus: Focus::None,
         palette_idx: 0,
         color_idx: None,

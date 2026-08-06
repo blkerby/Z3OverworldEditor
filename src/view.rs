@@ -1,5 +1,6 @@
 mod area;
 mod animated_tiles;
+mod dynamic_tiles;
 mod graphics;
 mod palette;
 mod settings;
@@ -12,12 +13,13 @@ use area::{
     edit_area_view, main_area_controls, rename_theme_view, side_area_controls,
 };
 use animated_tiles::animated_tiles_view;
+use dynamic_tiles::dynamic_tiles_view;
 use graphics::graphics_view;
 use iced::{
     alignment::Vertical,
     widget::{
         button, center, column, container, horizontal_space, mouse_area, opaque, responsive, row,
-        stack, text, Column, Space,
+        stack, text, Column, Row, Space,
     },
     Element, Font, Length, Theme,
 };
@@ -298,7 +300,14 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
         .into(),
     };
 
-    let mut main_view: Element<Message> = row![main_panel, vertical_separator(), side_panel,]
+    let mut panels = Row::new().push(main_panel).push(vertical_separator());
+    if state.dynamic_tiles_open {
+        panels = panels
+            .push(dynamic_tiles_view(state))
+            .push(vertical_separator());
+    }
+    let mut main_view: Element<Message> = panels
+        .push(side_panel)
         .spacing(0)
         .width(Length::Fill)
         .height(Length::Fill)

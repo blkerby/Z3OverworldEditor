@@ -15,8 +15,9 @@ use crate::{
         save_palettes, scan_used_tiles,
     },
     state::{
-        Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, EditorState, Flip, Focus,
-        PaletteId, PixelTarget, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool,
+        Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, DynamicTileGrid,
+        DynamicTileGroup, DynamicTilePlacement, DynamicTileTarget, DynamicTileVariant, EditorState,
+        Flip, Focus, PaletteId, PixelTarget, Screen, SidePanelView, Tile, TileBlock, TileIdx, Tool,
         MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
@@ -171,6 +172,28 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
             }
             _ => false,
         },
+        Message::DynamicTileBrush {
+            kind,
+            variant,
+            target,
+            coords,
+            selection,
+        } => match last_message {
+            Message::DynamicTileBrush {
+                kind: last_kind,
+                variant: last_variant,
+                target: last_target,
+                coords: last_coords,
+                selection: last_selection,
+            } => {
+                kind == last_kind
+                    && variant == last_variant
+                    && target == last_target
+                    && coords == last_coords
+                    && selection == last_selection
+            }
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -217,6 +240,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 key: keyboard::Key::Named(key::Named::Escape),
                 ..
             }) => {
+                if state.dynamic_tiles_open && state.dialogue.is_none() {
+                    state.dynamic_tiles_open = false;
+                    return Ok(None);
+                }
                 state.tool = Tool::Select;
                 state.dialogue = None;
                 state.color_idx = None;
@@ -606,6 +633,141 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         Message::SettingsDialogue => {
             state.dialogue = Some(Dialogue::Settings);
+        }
+        Message::OpenDynamicTiles => {
+            state.dialogue = None;
+            state.dynamic_tiles_open = true;
+        }
+        Message::CloseDynamicTiles => {
+            state.dynamic_tiles_open = false;
+        }
+        Message::SelectDynamicTileType(kind) => {
+            state.dynamic_tile_type = *kind;
+            state.dynamic_tile_variant = 0;
+            state.dynamic_tile_frame = 0;
+        }
+        Message::SelectDynamicTileVariant(variant) => {
+            state.dynamic_tile_variant = *variant;
+            state.dynamic_tile_frame = 0;
+        }
+        Message::SelectDynamicTileFrame(frame) => {
+            state.dynamic_tile_frame = *frame;
+        }
+        Message::AddDynamicTileVariant => {
+            let kind = state.dynamic_tile_type;
+            let group_idx = if let Some(idx) = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .position(|group| group.kind == kind)
+            {
+                idx
+            } else {
+                state.dynamic_tiles.groups.push(DynamicTileGroup {
+                    kind,
+                    variants: vec![],
+                });
+                state.dynamic_tiles.groups.len() - 1
+            };
+            let (width, height) = kind.size();
+            let empty_grid = DynamicTileGrid {
+                tiles: vec![vec![None; width]; height],
+            };
+            let variant = DynamicTileVariant {
+                before: empty_grid.clone(),
+                after_frames: vec![empty_grid; kind.after_frame_count()],
+            };
+            state.dynamic_tiles.groups[group_idx].variants.push(variant);
+            state.dynamic_tile_variant = state.dynamic_tiles.groups[group_idx].variants.len() - 1;
+            state.dynamic_tile_frame = 0;
+            state.dynamic_tiles.modified = true;
+        }
+        Message::DeleteDynamicTileVariant => {
+            let kind = state.dynamic_tile_type;
+            if let Some(group_idx) = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .position(|group| group.kind == kind)
+            {
+                let variants = &mut state.dynamic_tiles.groups[group_idx].variants;
+                if state.dynamic_tile_variant < variants.len() {
+                    variants.remove(state.dynamic_tile_variant);
+                    if state.dynamic_tile_variant >= variants.len() && !variants.is_empty() {
+                        state.dynamic_tile_variant = variants.len() - 1;
+                    }
+                    if variants.is_empty() {
+                        state.dynamic_tiles.groups.remove(group_idx);
+                        state.dynamic_tile_variant = 0;
+                    }
+                    state.dynamic_tile_frame = 0;
+                    state.dynamic_tiles.modified = true;
+                }
+            }
+        }
+        Message::SetDynamicTileVariants { kind, variants } => {
+            if let Some(group_idx) = state
+                .dynamic_tiles
+                .groups
+                .iter()
+                .position(|group| group.kind == *kind)
+            {
+                if variants.is_empty() {
+                    state.dynamic_tiles.groups.remove(group_idx);
+                } else {
+                    state.dynamic_tiles.groups[group_idx].variants = variants.clone();
+                }
+            } else if !variants.is_empty() {
+                state.dynamic_tiles.groups.push(DynamicTileGroup {
+                    kind: *kind,
+                    variants: variants.clone(),
+                });
+            }
+            state.dynamic_tiles.groups.sort_by_key(|group| group.kind);
+            state.dynamic_tile_variant = state
+                .dynamic_tile_variant
+                .min(variants.len().saturating_sub(1));
+            state.dynamic_tile_frame = 0;
+            state.dynamic_tiles.modified = true;
+        }
+        Message::DynamicTileBrush {
+            kind,
+            variant,
+            target,
+            coords,
+            selection,
+        } => {
+            if let Some(group) = state
+                .dynamic_tiles
+                .groups
+                .iter_mut()
+                .find(|group| group.kind == *kind)
+            {
+                if let Some(variant) = group.variants.get_mut(*variant) {
+                    let grid = match target {
+                        DynamicTileTarget::Before => &mut variant.before,
+                        DynamicTileTarget::After(frame) => &mut variant.after_frames[*frame],
+                    };
+                    for y in 0..selection.size.1 as usize {
+                        let grid_y = coords.y as usize + y;
+                        if grid_y >= grid.tiles.len() {
+                            break;
+                        }
+                        for x in 0..selection.size.0 as usize {
+                            let grid_x = coords.x as usize + x;
+                            if grid_x >= grid.tiles[grid_y].len() {
+                                break;
+                            }
+                            grid.tiles[grid_y][grid_x] = Some(DynamicTilePlacement {
+                                palette: selection.palettes[y][x],
+                                tile: selection.tiles[y][x],
+                                flip: selection.flips[y][x],
+                            });
+                        }
+                    }
+                    state.dynamic_tiles.modified = true;
+                }
+            }
         }
         Message::HelpDialogue => {
             state.dialogue = Some(Dialogue::Help);
@@ -1489,7 +1651,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             let top = p0.1.min(p1.1);
             let mut bottom = p0.1.max(p1.1);
 
-            if state.snap_grid_16 {
+            if state.snap_grid_16
+                && !matches!(state.selection_source, SelectionSource::DynamicTiles { .. })
+            {
                 right += 1;
                 bottom += 1;
             }
@@ -1500,6 +1664,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
                 SelectionSource::Tileset => {
                     state.focus = Focus::TilesetTile;
+                }
+                SelectionSource::DynamicTiles { .. } => {
+                    state.focus = Focus::None;
                 }
             }
 
@@ -1521,6 +1688,47 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             pal_row.push(state.palettes[state.palette_idx].id);
                             tile_row.push(y * 16 + x);
                             flip_row.push(Flip::None)
+                        }
+                        SelectionSource::DynamicTiles {
+                            kind,
+                            variant,
+                            target,
+                        } => {
+                            let Some(group) = state
+                                .dynamic_tiles
+                                .groups
+                                .iter()
+                                .find(|group| group.kind == kind)
+                            else {
+                                return Ok(None);
+                            };
+                            let Some(variant) = group.variants.get(variant) else {
+                                return Ok(None);
+                            };
+                            let grid = match target {
+                                DynamicTileTarget::Before => &variant.before,
+                                DynamicTileTarget::After(frame) => {
+                                    let Some(frame) = variant.after_frames.get(frame) else {
+                                        return Ok(None);
+                                    };
+                                    frame
+                                }
+                            };
+                            let Some(placement) = grid
+                                .tiles
+                                .get(y as usize)
+                                .and_then(|row| row.get(x as usize))
+                                .copied()
+                                .flatten()
+                            else {
+                                warn!("Not selecting dynamic tiles: selection contains empty cells.");
+                                state.start_coords = None;
+                                state.end_coords = None;
+                                return Ok(None);
+                            };
+                            pal_row.push(placement.palette);
+                            tile_row.push(placement.tile);
+                            flip_row.push(placement.flip);
                         }
                     }
                 }
