@@ -172,7 +172,9 @@ impl Flip {
     }
 
     pub fn apply_to_tile(self, mut tile: Tile) -> Tile {
-        // TODO: also apply flips to slope collisions
+        if (0x10..0x1c).contains(&tile.collision) {
+            tile.collision ^= self as CollisionType;
+        }
         tile.pixels = self.apply_to_pixels(tile.pixels);
         tile
     }

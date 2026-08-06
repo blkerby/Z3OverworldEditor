@@ -1026,16 +1026,23 @@ impl<'a> Importer<'a> {
                                         }
                                         (tile_idx, t8.flip)
                                     } else {
-                                        let pixels = t8
-                                            .flip
-                                            .apply_to_pixels(self.tiles8[tiles8_idx as usize]);
+                                        let collision = match t8.flip {
+                                            Flip::Horizontal | Flip::Both
+                                                if (0x10..0x1c).contains(&collision) =>
+                                            {
+                                                collision | 1
+                                            }
+                                            _ => collision,
+                                        };
                                         let tile = Tile {
                                             id: None,
                                             priority: t8.priority,
                                             h_flippable: false,
                                             v_flippable: false,
                                             collision,
-                                            pixels,
+                                            pixels: t8.flip.apply_to_pixels(
+                                                self.tiles8[tiles8_idx as usize],
+                                            ),
                                         };
                                         match tile_lookup[palette_idx].get(&tile) {
                                             Some(x) => *x,
