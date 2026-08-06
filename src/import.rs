@@ -1,5 +1,5 @@
 use anyhow::{bail, ensure, Result};
-use hashbrown::{hash_map::Entry, HashMap};
+use hashbrown::{hash_map::Entry, HashMap, HashSet};
 use itertools::Itertools;
 use log::{info, warn};
 use std::{
@@ -11,8 +11,9 @@ use std::{
 use crate::{
     persist::{load_area, load_project, save_area_json, save_area_png, save_project},
     state::{
-        AnimatedTileGroup, Area, AreaId, AreaName, ColorRGB, ColorValue, EditorState, Flip,
-        Palette, PaletteId, Screen, Tile, TileIdx, TilePixels,
+        AnimatedTileGroup, Area, AreaId, AreaName, ColorRGB, ColorValue, DynamicTileGrid,
+        DynamicTileGroup, DynamicTilePlacement, DynamicTileType, DynamicTileVariant, DynamicTiles,
+        EditorState, Flip, Palette, PaletteId, Screen, Tile, TileIdx, TilePixels,
     },
     update::update_palette_order,
 };
@@ -75,6 +76,14 @@ fn set_vanilla_animated_tile(
     let frame_start = (base_sheet - 1) as usize * 64 + slot;
     group.frames[0][column] = tiles8[frame_start];
     group.frames[1][column] = tiles8[frame_start + 32];
+}
+
+fn strip_tile(mut tile: Tile) -> Tile {
+    // These fields vary as matching tiles are reused while importing.
+    tile.id = None;
+    tile.h_flippable = false;
+    tile.v_flippable = false;
+    tile
 }
 
 // From past experience, it's a very common mistake to mix up SNES addresses
@@ -179,6 +188,9 @@ struct Constants {
     special_gfx_set_addr: SnesAddr,
     tile_types: SnesAddr,
     custom_bg_colors_addr: Option<SnesAddr>,
+    dynamic_tile_offset: u16,
+    grave_tilemap_addr: SnesAddr,
+    grave_reveal_addr: SnesAddr,
 }
 
 impl Constants {
@@ -212,6 +224,9 @@ impl Constants {
             special_gfx_set_addr: SnesAddr(0x02E585), // appears incorrect in ZS?
             tile_types: SnesAddr(0x0FFD94),
             custom_bg_colors_addr: None,
+            dynamic_tile_offset: 0,
+            grave_tilemap_addr: SnesAddr(0x099990),
+            grave_reveal_addr: SnesAddr(0x0999AE),
         }
     }
 
@@ -245,6 +260,9 @@ impl Constants {
             special_gfx_set_addr: SnesAddr(0x02E821),
             tile_types: SnesAddr(0x0E9459),
             custom_bg_colors_addr: None,
+            dynamic_tile_offset: 6,
+            grave_tilemap_addr: SnesAddr(0x0999A4),
+            grave_reveal_addr: SnesAddr(0x0999C2),
         }
     }
 
@@ -446,6 +464,7 @@ impl<'a> Importer<'a> {
         self.load_map_palettes()?;
         self.load_map_gfx()?;
         self.load_areas()?;
+        self.load_dynamic_tiles()?;
         self.ensure_palette_full_rows()?;
         self.assign_bg_colors()?;
         save_project(self.state)?;
@@ -762,6 +781,10 @@ impl<'a> Importer<'a> {
                 );
                 aux2 = rom
                     .read_u8((self.constants.pal_set_addr + prev_pal_set as u32 * 4 + 1).into())?;
+                if aux2 >= 20 {
+                    warn!("{:02X}: out-of-range aux2: {}", i, aux2);
+                    aux2 = 0;
+                }
             }
             if animated >= 14 {
                 warn!("{:02X}: out-of-range animated: {}", i, animated);
@@ -844,15 +867,6 @@ impl<'a> Importer<'a> {
             vec![HashMap::new(); self.state.palettes.len()];
         let mut animated_groups: HashMap<(usize, u16), TileIdx> = HashMap::new();
         let mut animated_priorities: HashMap<(usize, u16, u16), bool> = HashMap::new();
-
-        fn strip_tile(mut tile: Tile) -> Tile {
-            // We clear these fields when looking up matching tiles, since these
-            // fields will vary over the course of processing.
-            tile.id = None;
-            tile.h_flippable = false;
-            tile.v_flippable = false;
-            tile
-        }
 
         for (palette, lookup) in self.state.palettes.iter().zip(&mut tile_lookup) {
             for (idx, tile) in palette.tiles.iter().enumerate() {
@@ -1113,6 +1127,448 @@ impl<'a> Importer<'a> {
             self.state
                 .set_area(crate::state::AreaPosition::Main, area)?;
             save_area_json(self.state, &self.state.main_area_id.clone())?;
+        }
+        Ok(())
+    }
+
+    fn build_dynamic_grid(
+        &mut self,
+        parent: usize,
+        map16: &[Vec<u16>],
+        replacement: bool,
+    ) -> Result<DynamicTileGrid> {
+        let mut gfx_idxs: Vec<u16> = vec![];
+        for idx in self.map_gfx[parent] {
+            gfx_idxs.extend((idx as u16 * 64)..((idx + 1) as u16 * 64));
+        }
+        let animated_gfx = if [0x03, 0x05, 0x07, 0x43, 0x45, 0x47].contains(&parent) {
+            0x59
+        } else {
+            0x5B
+        };
+        for slot in 0..ANIMATED_TILE_COUNT {
+            gfx_idxs[ANIMATED_TILE_START as usize + slot as usize] = animated_gfx * 64 + slot;
+        }
+
+        let pal = &self.map_palettes[parent];
+        let mut tiles = vec![vec![None; map16[0].len() * 2]; map16.len() * 2];
+        for (map_y, row) in map16.iter().enumerate() {
+            for (map_x, &tile16_idx) in row.iter().enumerate() {
+                let tile16_idx = if replacement && tile16_idx >= 0x0D9E {
+                    tile16_idx + self.constants.dynamic_tile_offset
+                } else {
+                    tile16_idx
+                };
+                for (tile8_idx, tile8) in self.tiles16[tile16_idx as usize].iter().enumerate() {
+                    let gfx_sheet = tile8.gfx_char / 64;
+                    ensure!(gfx_sheet < 8);
+                    let pal_high = [0, 3, 4, 5].contains(&gfx_sheet);
+                    let palette_id = match (tile8.pal_idx, pal_high) {
+                        (p @ (0 | 1), _) => self.hud_palette_ids[0][p as usize],
+                        (p @ 2..=6, false) => {
+                            self.main_palette_ids[pal.main as usize][p as usize - 2]
+                        }
+                        (7, false) => self.animated_palette_ids[pal.animated as usize],
+                        (p @ 2..=4, true) => {
+                            self.aux_palette_ids[pal.aux1 as usize][p as usize - 2]
+                        }
+                        (p @ 5..=7, true) => {
+                            self.aux_palette_ids[pal.aux2 as usize][p as usize - 5]
+                        }
+                        _ => bail!("unexpected palette: {} {}", tile8.pal_idx, pal_high),
+                    };
+                    let palette_idx = self.state.palettes_id_idx_map[&palette_id];
+                    let mut collision = self.tile_types[tile8.gfx_char as usize];
+                    if matches!(tile8.flip, Flip::Horizontal | Flip::Both)
+                        && (0x10..0x1c).contains(&collision)
+                    {
+                        collision |= 1;
+                    }
+                    let tile = Tile {
+                        id: None,
+                        priority: tile8.priority,
+                        collision,
+                        pixels: tile8.flip.apply_to_pixels(
+                            self.tiles8[gfx_idxs[tile8.gfx_char as usize] as usize],
+                        ),
+                        ..Tile::default()
+                    };
+
+                    let mut placement = None;
+                    for (idx, candidate) in
+                        self.state.palettes[palette_idx].tiles.iter().enumerate()
+                    {
+                        for flip in [Flip::None, Flip::Horizontal, Flip::Vertical, Flip::Both] {
+                            if strip_tile(flip.apply_to_tile(*candidate)) == tile {
+                                placement = Some(DynamicTilePlacement {
+                                    palette: palette_id,
+                                    tile: idx as TileIdx,
+                                    flip,
+                                });
+                                break;
+                            }
+                        }
+                        if placement.is_some() {
+                            break;
+                        }
+                    }
+                    let placement = match placement {
+                        Some(placement) => placement,
+                        None => {
+                            let tile_idx = self.state.palettes[palette_idx].tiles.len() as TileIdx;
+                            self.state.palettes[palette_idx].tiles.push(tile);
+                            DynamicTilePlacement {
+                                palette: palette_id,
+                                tile: tile_idx,
+                                flip: Flip::None,
+                            }
+                        }
+                    };
+                    match placement.flip {
+                        Flip::None => {}
+                        Flip::Horizontal => {
+                            self.state.palettes[palette_idx].tiles[placement.tile as usize]
+                                .h_flippable = true;
+                        }
+                        Flip::Vertical => {
+                            self.state.palettes[palette_idx].tiles[placement.tile as usize]
+                                .v_flippable = true;
+                        }
+                        Flip::Both => {
+                            self.state.palettes[palette_idx].tiles[placement.tile as usize]
+                                .h_flippable = true;
+                            self.state.palettes[palette_idx].tiles[placement.tile as usize]
+                                .v_flippable = true;
+                        }
+                    }
+                    let x = map_x * 2 + tile8_idx % 2;
+                    let y = map_y * 2 + tile8_idx / 2;
+                    tiles[y][x] = Some(placement);
+                }
+            }
+        }
+        Ok(DynamicTileGrid { tiles })
+    }
+
+    fn add_dynamic_variant(
+        &mut self,
+        kind: DynamicTileType,
+        parent: usize,
+        before: Vec<Vec<u16>>,
+        after_frames: Vec<Vec<Vec<u16>>>,
+    ) -> Result<()> {
+        let before = self.build_dynamic_grid(parent, &before, false)?;
+        let mut frames = Vec::with_capacity(after_frames.len());
+        for frame in after_frames {
+            frames.push(self.build_dynamic_grid(parent, &frame, true)?);
+        }
+        let variant = DynamicTileVariant {
+            before,
+            after_frames: frames,
+        };
+        let group = self
+            .state
+            .dynamic_tiles
+            .groups
+            .iter_mut()
+            .find(|group| group.kind == kind)
+            .unwrap();
+        if !group.variants.contains(&variant) {
+            group.variants.push(variant);
+        }
+        Ok(())
+    }
+
+    fn build_map16(&self, parent: usize) -> Vec<Vec<u16>> {
+        let block_x = parent % 8;
+        let map_size = if block_x <= 6 && self.map_parents[parent + 1] as usize == parent {
+            2
+        } else {
+            1
+        };
+        let mut map16 = vec![vec![0; map_size * 32]; map_size * 32];
+        for map_y in 0..map_size {
+            for map_x in 0..map_size {
+                let map_idx = parent + map_y * 8 + map_x;
+                for (tile32_y, row) in self.map_tiles[map_idx].iter().enumerate() {
+                    for (tile32_x, &tile32_idx) in row.iter().enumerate() {
+                        let tile32 = self.tiles32[tile32_idx as usize];
+                        let x = map_x * 32 + tile32_x * 2;
+                        let y = map_y * 32 + tile32_y * 2;
+                        map16[y][x] = tile32[0];
+                        map16[y][x + 1] = tile32[1];
+                        map16[y + 1][x] = tile32[2];
+                        map16[y + 1][x + 1] = tile32[3];
+                    }
+                }
+            }
+        }
+        map16
+    }
+
+    fn load_dynamic_tiles(&mut self) -> Result<()> {
+        self.state.dynamic_tiles = DynamicTiles {
+            modified: true,
+            groups: DynamicTileType::ALL
+                .into_iter()
+                .map(|kind| DynamicTileGroup {
+                    kind,
+                    variants: vec![],
+                })
+                .collect(),
+        };
+
+        let small_patterns = [
+            (DynamicTileType::CutGrass, 0x037D, 0x0DBF),
+            (DynamicTileType::GreenBush, 0x0036, 0x0DC1),
+            (DynamicTileType::HeavyBush, 0x0727, 0x0DC2),
+            (DynamicTileType::HammerPeg, 0x021B, 0x0DC5),
+            (DynamicTileType::LiftSign, 0x0101, 0x0DC0),
+            (DynamicTileType::SmallGrayRock, 0x020F, 0x0DC4),
+            (DynamicTileType::SmallBlackRock, 0x0239, 0x0DC4),
+        ];
+        let dig_tiles = [
+            0x0034, 0x0035, 0x0071, 0x00DA, 0x00E1, 0x00E2, 0x00F8, 0x010D, 0x010E, 0x010F,
+        ];
+        let large_patterns = [
+            (
+                DynamicTileType::LargeGrayRock,
+                [[0x036C, 0x036D], [0x0373, 0x0374]],
+            ),
+            (
+                DynamicTileType::LargeBlackRock,
+                [[0x023B, 0x023C], [0x023D, 0x023E]],
+            ),
+            (
+                DynamicTileType::RockPile,
+                [[0x0226, 0x0227], [0x0228, 0x0229]],
+            ),
+        ];
+        let large_after = vec![vec![0x0DC7, 0x0DC8], vec![0x0DC9, 0x0DCA]];
+
+        let mut valid_doors = HashSet::new();
+        for i in 0..44 {
+            let left = self.rom.read_u16((SnesAddr(0x1BB8BF) + i * 2).into())?;
+            let right = self.rom.read_u16((SnesAddr(0x1BB917) + i * 2).into())?;
+            valid_doors.insert((left, right));
+        }
+
+        for parent in 0..=0x81 {
+            if self.map_parents[parent] as usize != parent {
+                continue;
+            }
+            let map16 = self.build_map16(parent);
+            let width = map16[0].len();
+            let height = map16.len();
+
+            for y in 0..height {
+                for x in 0..width {
+                    let current = map16[y][x];
+                    for &(kind, source, replacement) in &small_patterns {
+                        if current == source {
+                            self.add_dynamic_variant(
+                                kind,
+                                parent,
+                                vec![vec![source]],
+                                vec![vec![vec![replacement]]],
+                            )?;
+                        }
+                    }
+                    if dig_tiles.contains(&current) {
+                        self.add_dynamic_variant(
+                            DynamicTileType::DigTerrain,
+                            parent,
+                            vec![vec![current]],
+                            vec![vec![vec![0x0DC3]]],
+                        )?;
+                    }
+
+                    for &(kind, source) in &large_patterns {
+                        let mut quadrant = None;
+                        for (source_y, row) in source.iter().enumerate() {
+                            for (source_x, &tile) in row.iter().enumerate() {
+                                if current == tile {
+                                    quadrant = Some((source_x, source_y));
+                                }
+                            }
+                        }
+                        if let Some((source_x, source_y)) = quadrant {
+                            if x >= source_x
+                                && y >= source_y
+                                && x - source_x + 1 < width
+                                && y - source_y + 1 < height
+                            {
+                                let start_x = x - source_x;
+                                let start_y = y - source_y;
+                                let before = vec![
+                                    map16[start_y][start_x..start_x + 2].to_vec(),
+                                    map16[start_y + 1][start_x..start_x + 2].to_vec(),
+                                ];
+                                self.add_dynamic_variant(
+                                    kind,
+                                    parent,
+                                    before,
+                                    vec![large_after.clone()],
+                                )?;
+                            }
+                        }
+                    }
+                }
+            }
+
+            'entrances: for entrance in 0..129 {
+                let screen = self
+                    .rom
+                    .read_u16((SnesAddr(0x1BB96F) + entrance * 2).into())?
+                    as usize;
+                if self.map_parents[screen] as usize != parent {
+                    continue;
+                }
+                let offset = self
+                    .rom
+                    .read_u16((SnesAddr(0x1BBA71) + entrance * 2).into())?
+                    as usize;
+                let x = (offset & 0x7F) / 2;
+                let y = offset / 0x80;
+                if x >= width || y >= height {
+                    continue;
+                }
+                for door_y in y..=(y + 1).min(height - 1) {
+                    let tile16 = self.tiles16[map16[door_y][x] as usize];
+                    if x + 1 < width
+                        && valid_doors.contains(&(tile16[2].gfx_char, tile16[3].gfx_char))
+                    {
+                        self.add_dynamic_variant(
+                            DynamicTileType::WoodenDoor,
+                            parent,
+                            vec![vec![map16[door_y][x], map16[door_y][x + 1]]],
+                            vec![vec![vec![0x0D9E, 0x0DA0]]],
+                        )?;
+                        continue 'entrances;
+                    }
+
+                    let (door_x, door_gfx) = if tile16[1].flip == Flip::None {
+                        (x, tile16[1].gfx_char)
+                    } else if x > 0 && tile16[0].flip == Flip::Horizontal {
+                        (x - 1, tile16[0].gfx_char)
+                    } else {
+                        continue;
+                    };
+                    if door_x + 1 >= width
+                        || door_y == 0
+                        || (door_gfx != 0x0149 && door_gfx != 0x0169)
+                    {
+                        continue;
+                    }
+                    let kind = if door_gfx == 0x0149 {
+                        DynamicTileType::SanctuaryDoor
+                    } else {
+                        DynamicTileType::HyruleCastleDoor
+                    };
+                    let before = vec![
+                        vec![map16[door_y - 1][door_x], map16[door_y - 1][door_x + 1]],
+                        vec![map16[door_y][door_x], map16[door_y][door_x + 1]],
+                    ];
+                    let after = if kind == DynamicTileType::SanctuaryDoor {
+                        vec![
+                            vec![vec![0x0DA2, 0x0DA3], vec![0x0DA4, 0x0DA5]],
+                            vec![vec![0x0DA6, 0x0DA7], vec![0x0DA8, 0x0DA9]],
+                            vec![vec![0x0DAA, 0x0DAB], vec![0x0DAC, 0x0DAD]],
+                        ]
+                    } else {
+                        vec![
+                            vec![vec![0x0DB0, 0x0DB1], vec![0x0DB2, 0x0DB3]],
+                            vec![vec![0x0DB4, 0x0DB5], vec![0x0DB6, 0x0DB7]],
+                        ]
+                    };
+                    self.add_dynamic_variant(kind, parent, before, after)?;
+                    continue 'entrances;
+                }
+            }
+
+            for screen in 0..0x80 {
+                if self.map_parents[screen] as usize != parent {
+                    continue;
+                }
+                let pointer = self
+                    .rom
+                    .read_u16((SnesAddr(0x1BC2F9) + screen as u32 * 2).into())?;
+                let mut address = SnesAddr::from_bank_offset(0x1B, pointer);
+                loop {
+                    let offset = self.rom.read_u16(address.into())?;
+                    if offset == 0xFFFF {
+                        break;
+                    }
+                    let secret = self.rom.read_u8((address + 2).into())?;
+                    address += 3;
+                    let (kind, after) = match secret {
+                        0x80 => (DynamicTileType::SecretHole, vec![vec![0x0DC6]]),
+                        0x82 => (DynamicTileType::SecretPortal, vec![vec![0x0212]]),
+                        0x84 => (
+                            DynamicTileType::SecretStairs,
+                            vec![vec![0x0912, 0x0913], vec![0x0914, 0x0915]],
+                        ),
+                        0x86 => (
+                            DynamicTileType::SecretBombableEntrance,
+                            vec![vec![0x0DAE, 0x0DAF]],
+                        ),
+                        _ => continue,
+                    };
+                    let x = (offset as usize & 0x7F) / 2;
+                    let y = offset as usize / 0x80;
+                    let map_width = after[0].len();
+                    let map_height = after.len();
+                    if x + map_width > width || y + map_height > height {
+                        continue;
+                    }
+                    let mut before = Vec::with_capacity(map_height);
+                    for row in &map16[y..y + map_height] {
+                        before.push(row[x..x + map_width].to_vec());
+                    }
+                    self.add_dynamic_variant(kind, parent, before, vec![after])?;
+                }
+            }
+        }
+
+        let grave_parent = self.map_parents[0x14] as usize;
+        let grave_map = self.build_map16(grave_parent);
+        for grave in 0..15 {
+            if grave == 5 {
+                continue;
+            }
+            let offset = self
+                .rom
+                .read_u16((self.constants.grave_tilemap_addr + grave * 2).into())?
+                as usize;
+            let revealed = self
+                .rom
+                .read_u16((self.constants.grave_reveal_addr + grave * 2).into())?;
+            let (kind, after) = match revealed {
+                0x30 => (
+                    DynamicTileType::GraveCorpse,
+                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DCD, 0x0DCE]],
+                ),
+                0x38 => (
+                    DynamicTileType::GraveStairs,
+                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DD1, 0x0DD2]],
+                ),
+                0x58 => (
+                    DynamicTileType::GravePit,
+                    vec![vec![0x0DCB, 0x0DCC], vec![0x0DD5, 0x0DD6]],
+                ),
+                _ => continue,
+            };
+            let x = (offset & 0x7F) / 2;
+            let y = offset / 0x80;
+            let before = vec![
+                grave_map[y][x..x + 2].to_vec(),
+                grave_map[y + 1][x..x + 2].to_vec(),
+            ];
+            self.add_dynamic_variant(kind, grave_parent, before, vec![after])?;
+        }
+
+        for group in &self.state.dynamic_tiles.groups {
+            info!("Imported {} {} variants", group.variants.len(), group.kind);
         }
         Ok(())
     }
