@@ -4,7 +4,7 @@ use iced::{
     alignment::Vertical,
     mouse,
     widget::{
-        button, canvas, column, container, pick_list, row,
+        button, canvas, checkbox, column, container, pick_list, row,
         scrollable::{Direction, Scrollbar},
         stack, text, text_input, Scrollable, Space,
     },
@@ -16,8 +16,8 @@ use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
     state::{
-        Area, AreaId, AreaPosition, ColorIdx, EditorState, Focus, Palette, PaletteId, Tile,
-        TileBlock, TileCoord, TileIdx, Tool,
+        Area, AreaId, AreaPosition, Background, ColorIdx, EditorState, Focus, Palette, PaletteId,
+        Tile, TileBlock, TileCoord, TileIdx, Tool,
     },
 };
 
@@ -31,6 +31,8 @@ struct AreaGrid<'a> {
     position: AreaPosition,
     area_id: AreaId,
     area: &'a Area,
+    selected_layer_idx: usize,
+    visible_layers: &'a [bool],
     palettes: &'a [Palette],
     palettes_id_idx_map: &'a HashMap<PaletteId, usize>,
     end_coords: Option<(TileCoord, TileCoord)>,
@@ -104,12 +106,130 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         } else {
             state.coords = None;
         }
-        if let canvas::Event::Mouse(mouse_event) = event { match mouse_event {
-            mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
-                if let Some(p) = cursor.position_over(bounds) {
-                    match (self.tool, btn) {
-                        (Tool::Brush, mouse::Button::Left) => {
-                            state.action = InternalStateAction::Brushing;
+        if let canvas::Event::Mouse(mouse_event) = event {
+            match mouse_event {
+                mouse::Event::ButtonPressed(btn @ (mouse::Button::Left | mouse::Button::Right)) => {
+                    if let Some(p) = cursor.position_over(bounds) {
+                        match (self.tool, btn) {
+                            (Tool::Brush, mouse::Button::Left) => {
+                                state.action = InternalStateAction::Brushing;
+                                let coords = clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.area.size,
+                                    self.pixel_size,
+                                    self.snap_grid_16,
+                                );
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::AreaBrush {
+                                        position: self.position,
+                                        area_id: self.area_id.clone(),
+                                        layer_idx: self.selected_layer_idx,
+                                        coords,
+                                        selection: self.tile_block.clone(),
+                                        palette_only: self.palette_only_brush,
+                                    }),
+                                );
+                            }
+                            (Tool::Erase, mouse::Button::Left) => {
+                                state.action = InternalStateAction::Brushing;
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::AreaErase {
+                                        position: self.position,
+                                        area_id: self.area_id.clone(),
+                                        layer_idx: self.selected_layer_idx,
+                                        coords: clamped_position_in(
+                                            p,
+                                            bounds,
+                                            self.area.size,
+                                            self.pixel_size,
+                                            self.snap_grid_16,
+                                        ),
+                                        size: if self.snap_grid_16 { 2 } else { 1 },
+                                    }),
+                                );
+                            }
+                            (Tool::Select, mouse::Button::Left | mouse::Button::Right)
+                            | (Tool::Brush | Tool::Erase, mouse::Button::Right) => {
+                                state.action = InternalStateAction::Selecting;
+                                return (
+                                    canvas::event::Status::Captured,
+                                    Some(Message::StartTileSelection(
+                                        clamped_position_in(
+                                            p,
+                                            bounds,
+                                            self.area.size,
+                                            self.pixel_size,
+                                            self.snap_grid_16,
+                                        ),
+                                        crate::message::SelectionSource::Area(self.position),
+                                    )),
+                                );
+                            }
+                            _ => {}
+                        }
+                    };
+                }
+                mouse::Event::ButtonReleased(mouse::Button::Left | mouse::Button::Right) => {
+                    let state0 = *state;
+                    state.action = InternalStateAction::None;
+                    if state0.action == InternalStateAction::Selecting {
+                        let coords = if let Some(p) = cursor.position() {
+                            clamped_position_in(
+                                p,
+                                bounds,
+                                self.area.size,
+                                self.pixel_size,
+                                self.snap_grid_16,
+                            )
+                        } else if let Some(c) = self.end_coords {
+                            Point::new(c.0, c.1)
+                        } else {
+                            return (canvas::event::Status::Ignored, None);
+                        };
+                        return (
+                            canvas::event::Status::Captured,
+                            Some(Message::EndTileSelection(coords)),
+                        );
+                    }
+                }
+                mouse::Event::CursorMoved { .. } => match state.action {
+                    InternalStateAction::None => {
+                        if let Some(p) = cursor.position() {
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::HoverArea(clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.area.size,
+                                    self.pixel_size,
+                                    self.snap_grid_16,
+                                ))),
+                            );
+                        } else {
+                            return (canvas::event::Status::Ignored, None);
+                        }
+                    }
+                    InternalStateAction::Selecting => {
+                        if let Some(p) = cursor.position() {
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::ProgressTileSelection(clamped_position_in(
+                                    p,
+                                    bounds,
+                                    self.area.size,
+                                    self.pixel_size,
+                                    self.snap_grid_16,
+                                ))),
+                            );
+                        } else {
+                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                        }
+                    }
+                    InternalStateAction::Brushing => {
+                        if let Some(p) = cursor.position() {
                             let coords = clamped_position_in(
                                 p,
                                 bounds,
@@ -117,123 +237,36 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 self.pixel_size,
                                 self.snap_grid_16,
                             );
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::AreaBrush {
+                            let message = if self.tool == Tool::Erase {
+                                Message::AreaErase {
                                     position: self.position,
                                     area_id: self.area_id.clone(),
+                                    layer_idx: self.selected_layer_idx,
+                                    coords,
+                                    size: if self.snap_grid_16 { 2 } else { 1 },
+                                }
+                            } else {
+                                Message::AreaBrush {
+                                    position: self.position,
+                                    area_id: self.area_id.clone(),
+                                    layer_idx: self.selected_layer_idx,
                                     coords,
                                     selection: self.tile_block.clone(),
                                     palette_only: self.palette_only_brush,
-                                }),
-                            );
+                                }
+                            };
+                            return (canvas::event::Status::Captured, Some(message));
+                        } else {
+                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
                         }
-                        (Tool::Select, mouse::Button::Left | mouse::Button::Right)
-                        | (Tool::Brush, mouse::Button::Right) => {
-                            state.action = InternalStateAction::Selecting;
-                            return (
-                                canvas::event::Status::Captured,
-                                Some(Message::StartTileSelection(
-                                    clamped_position_in(
-                                        p,
-                                        bounds,
-                                        self.area.size,
-                                        self.pixel_size,
-                                        self.snap_grid_16,
-                                    ),
-                                    crate::message::SelectionSource::Area(self.position),
-                                )),
-                            );
-                        }
-                        _ => {}
                     }
-                };
+                },
+                mouse::Event::CursorLeft => {
+                    return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                }
+                _ => {}
             }
-            mouse::Event::ButtonReleased(mouse::Button::Left | mouse::Button::Right) => {
-                let state0 = *state;
-                state.action = InternalStateAction::None;
-                if state0.action == InternalStateAction::Selecting {
-                    let coords = if let Some(p) = cursor.position() {
-                        clamped_position_in(
-                            p,
-                            bounds,
-                            self.area.size,
-                            self.pixel_size,
-                            self.snap_grid_16,
-                        )
-                    } else if let Some(c) = self.end_coords {
-                        Point::new(c.0, c.1)
-                    } else {
-                        return (canvas::event::Status::Ignored, None);
-                    };
-                    return (
-                        canvas::event::Status::Captured,
-                        Some(Message::EndTileSelection(coords)),
-                    );
-                }
-            }
-            mouse::Event::CursorMoved { .. } => match state.action {
-                InternalStateAction::None => {
-                    if let Some(p) = cursor.position() {
-                        return (
-                            canvas::event::Status::Captured,
-                            Some(Message::HoverArea(clamped_position_in(
-                                p,
-                                bounds,
-                                self.area.size,
-                                self.pixel_size,
-                                self.snap_grid_16,
-                            ))),
-                        );
-                    } else {
-                        return (canvas::event::Status::Ignored, None);
-                    }
-                }
-                InternalStateAction::Selecting => {
-                    if let Some(p) = cursor.position() {
-                        return (
-                            canvas::event::Status::Captured,
-                            Some(Message::ProgressTileSelection(clamped_position_in(
-                                p,
-                                bounds,
-                                self.area.size,
-                                self.pixel_size,
-                                self.snap_grid_16,
-                            ))),
-                        );
-                    } else {
-                        return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
-                    }
-                }
-                InternalStateAction::Brushing => {
-                    if let Some(p) = cursor.position() {
-                        let coords = clamped_position_in(
-                            p,
-                            bounds,
-                            self.area.size,
-                            self.pixel_size,
-                            self.snap_grid_16,
-                        );
-                        return (
-                            canvas::event::Status::Captured,
-                            Some(Message::AreaBrush {
-                                position: self.position,
-                                area_id: self.area_id.clone(),
-                                coords,
-                                selection: self.tile_block.clone(),
-                                palette_only: self.palette_only_brush,
-                            }),
-                        );
-                    } else {
-                        return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
-                    }
-                }
-            },
-            mouse::Event::CursorLeft => {
-                return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
-            }
-            _ => {}
-        } }
+        }
         (canvas::event::Status::Ignored, None)
     }
 
@@ -260,69 +293,87 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
 
         // Add a pixel of transparent padding around the image, since Iced's
         // "nearest neighbor" filter results in the edge pixels having the wrong size.
-        let num_cols = self.area.size.1 as usize * 256 + 2;
-        let num_rows = self.area.size.0 as usize * 256 + 2;
+        let num_cols = self.area.size.0 as usize * 256 + 2;
+        let num_rows = self.area.size.1 as usize * 256 + 2;
         let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
         let col_stride = 4;
         let row_stride = num_cols * col_stride;
-        for sy in 0..self.area.size.1 as usize {
-            for sx in 0..self.area.size.0 as usize {
-                let screen = &self.area.screens[sy * self.area.size.0 as usize + sx];
-                let screen_addr = (sy * 256 + 1) * row_stride + (sx * 256 + 1) * col_stride;
-                for ty in 0..32 {
-                    for tx in 0..32 {
-                        let palette_id = screen.palettes[ty][tx];
-                        let Some(&palette_idx) = self.palettes_id_idx_map.get(&palette_id) else {
-                            // TODO: draw some indicator of the broken tile (due to invalid palette reference)
-                            continue;
-                        };
-                        let tile_idx = screen.tiles[ty][tx];
-                        if tile_idx as usize >= self.palettes[palette_idx].tiles.len() {
-                            continue;
-                        }
-                        let flip = screen.flips[ty][tx];
-                        let tile = self.palettes[palette_idx].tiles[tile_idx as usize];
-                        let tile = flip.apply_to_tile(tile);
-                        let cb = &color_bytes[palette_idx];
-                        let mut tile_addr = screen_addr + ty * 8 * row_stride + tx * 8 * col_stride;
+        let bg = self.area.bg_color.map(scale_color);
+        for y in 1..num_rows - 1 {
+            for x in 1..num_cols - 1 {
+                let addr = y * row_stride + x * col_stride;
+                data[addr..addr + 3].copy_from_slice(&bg);
+                data[addr + 3] = 255;
+            }
+        }
+        for (layer_idx, layer) in self.area.layers.iter().enumerate() {
+            let visible = match self.position {
+                AreaPosition::Main => self.visible_layers.get(layer_idx) == Some(&true),
+                AreaPosition::Side => layer_idx == self.selected_layer_idx,
+            };
+            if !visible {
+                continue;
+            }
+            for (ty, row) in layer.tiles.iter().enumerate() {
+                for (tx, placement) in row.iter().enumerate() {
+                    let Some(placement) = placement else {
+                        continue;
+                    };
+                    let palette_id = placement.palette;
+                    let Some(&palette_idx) = self.palettes_id_idx_map.get(&palette_id) else {
+                        // TODO: draw some indicator of the broken tile (due to invalid palette reference)
+                        continue;
+                    };
+                    let tile_idx = placement.tile;
+                    if tile_idx as usize >= self.palettes[palette_idx].tiles.len() {
+                        continue;
+                    }
+                    let flip = placement.flip;
+                    let tile = self.palettes[palette_idx].tiles[tile_idx as usize];
+                    let tile = flip.apply_to_tile(tile);
+                    let cb = &color_bytes[palette_idx];
+                    let mut tile_addr = (ty * 8 + 1) * row_stride + (tx * 8 + 1) * col_stride;
 
-                        let illegal_flip = match flip {
-                            crate::state::Flip::None => false,
-                            crate::state::Flip::Horizontal => !tile.h_flippable,
-                            crate::state::Flip::Vertical => !tile.v_flippable,
-                            crate::state::Flip::Both => !tile.h_flippable || !tile.v_flippable,
-                        };
-                        let identify_tile = self.identify_tile
-                            && self.palette_idx == palette_idx
-                            && self.tile_idx == Some(tile_idx);
-                        for py in 0..8 {
-                            let mut addr = tile_addr;
-                            for px in 0..8 {
-                                let color_idx = tile.pixels[py][px];
-                                let mut color = cb[color_idx as usize];
-                                let identify_color = self.identify_color
-                                    && self.color_idx == Some(color_idx)
-                                    && self.palette_idx == palette_idx;
-
-                                if illegal_flip && !self.identify_tile && !self.identify_color {
-                                    let red_highlight = [255, 0, 0];
-                                    let alpha = 0.5;
-                                    color = alpha_blend(color, red_highlight, alpha);
-                                }
-
-                                let pink_highlight = [255, 105, 180];
-                                if identify_tile {
-                                    let alpha = 0.5;
-                                    color = alpha_blend(color, pink_highlight, alpha);
-                                } else if identify_color {
-                                    color = pink_highlight;
-                                }
-                                data[addr..(addr + 3)].copy_from_slice(&color);
-                                data[addr + 3] = 255;
+                    let illegal_flip = match flip {
+                        crate::state::Flip::None => false,
+                        crate::state::Flip::Horizontal => !tile.h_flippable,
+                        crate::state::Flip::Vertical => !tile.v_flippable,
+                        crate::state::Flip::Both => !tile.h_flippable || !tile.v_flippable,
+                    };
+                    let identify_tile = self.identify_tile
+                        && self.palette_idx == palette_idx
+                        && self.tile_idx == Some(tile_idx);
+                    for py in 0..8 {
+                        let mut addr = tile_addr;
+                        for px in 0..8 {
+                            let color_idx = tile.pixels[py][px];
+                            if color_idx == 0 {
                                 addr += 4;
+                                continue;
                             }
-                            tile_addr += row_stride;
+                            let mut color = cb[color_idx as usize];
+                            let identify_color = self.identify_color
+                                && self.color_idx == Some(color_idx)
+                                && self.palette_idx == palette_idx;
+
+                            if illegal_flip && !self.identify_tile && !self.identify_color {
+                                let red_highlight = [255, 0, 0];
+                                let alpha = 0.5;
+                                color = alpha_blend(color, red_highlight, alpha);
+                            }
+
+                            let pink_highlight = [255, 105, 180];
+                            if identify_tile {
+                                let alpha = 0.5;
+                                color = alpha_blend(color, pink_highlight, alpha);
+                            } else if identify_color {
+                                color = pink_highlight;
+                            }
+                            data[addr..(addr + 3)].copy_from_slice(&color);
+                            data[addr + 3] = 255;
+                            addr += 4;
                         }
+                        tile_addr += row_stride;
                     }
                 }
             }
@@ -345,13 +396,35 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                         {
                             continue;
                         }
-                        let palette_id = self.tile_block.palettes[ty][tx];
+                        let Some(placement) = self.tile_block.placements[ty][tx] else {
+                            continue;
+                        };
+                        if self.palette_only_brush
+                            && self
+                                .area
+                                .get_layer_placement(
+                                    self.selected_layer_idx,
+                                    base_x + tx as TileCoord,
+                                    base_y + ty as TileCoord,
+                                )
+                                .ok()
+                                .flatten()
+                                .is_none()
+                        {
+                            continue;
+                        }
+                        let palette_id = placement.palette;
                         if let Some(&palette_idx) = self.palettes_id_idx_map.get(&palette_id) {
                             let tile = if self.palette_only_brush {
                                 let x1 = base_x + tx as TileCoord;
                                 let y1 = base_y + ty as TileCoord;
-                                let tile_idx = self.area.get_tile(x1, y1).unwrap();
-                                let flip = self.area.get_flip(x1, y1).unwrap();
+                                let destination = self
+                                    .area
+                                    .get_layer_placement(self.selected_layer_idx, x1, y1)
+                                    .unwrap()
+                                    .unwrap();
+                                let tile_idx = destination.tile;
+                                let flip = destination.flip;
                                 let clamped_tile_idx = std::cmp::min(
                                     tile_idx,
                                     self.palettes[palette_idx].tiles.len() as TileIdx - 1,
@@ -363,8 +436,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     .unwrap();
                                 flip.apply_to_tile(t)
                             } else {
-                                let tile_idx = self.tile_block.tiles[ty][tx];
-                                let flip = self.tile_block.flips[ty][tx];
+                                let tile_idx = placement.tile;
+                                let flip = placement.flip;
                                 let t = if (tile_idx as usize)
                                     < self.palettes[palette_idx].tiles.len()
                                 {
@@ -381,6 +454,10 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 let mut addr = tile_addr;
                                 for px in 0..8 {
                                     let color_idx = tile.pixels[py][px];
+                                    if color_idx == 0 {
+                                        addr += 4;
+                                        continue;
+                                    }
                                     let old_color = [data[addr], data[addr + 1], data[addr + 2]];
                                     let new_color = cb[color_idx as usize];
                                     let blended_color = alpha_blend(old_color, new_color, alpha);
@@ -428,6 +505,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
             match self.tool {
                 Tool::Select => mouse::Interaction::default(),
                 Tool::Brush => mouse::Interaction::Crosshair,
+                Tool::Erase => mouse::Interaction::Cell,
                 Tool::Move => mouse::Interaction::NotAllowed,
             }
         } else {
@@ -564,8 +642,8 @@ impl canvas::Program<Message> for AreaSelect {
 
 pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_, Message> {
     let area = state.area(position);
-    let num_cols = area.size.1 * 32;
-    let num_rows = area.size.0 * 32;
+    let num_cols = area.size.0 * 32;
+    let num_rows = area.size.1 * 32;
     let pixel_size = state.global_config.pixel_size;
 
     let mut left = 0;
@@ -591,6 +669,8 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_
                 position,
                 area_id: state.area_id(position).clone(),
                 area: state.area(position),
+                selected_layer_idx: state.selected_layer_idx(position),
+                visible_layers: &state.visible_layers,
                 palettes: &state.palettes,
                 palettes_id_idx_map: &state.palettes_id_idx_map,
                 pixel_size,
@@ -664,6 +744,13 @@ pub fn main_area_controls(state: &EditorState) -> Element<'_, Message> {
             .on_press(Message::AddThemeDialogue),
         button(text("\u{F4CB}").font(iced_fonts::BOOTSTRAP_FONT))
             .on_press(Message::RenameThemeDialogue),
+        button(text("Layers"))
+            .style(if state.layer_drawer_open {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .on_press(Message::ToggleLayerDrawer),
     ]
     .spacing(10)
     .clip(true)
@@ -672,6 +759,13 @@ pub fn main_area_controls(state: &EditorState) -> Element<'_, Message> {
 }
 
 pub fn side_area_controls(state: &EditorState) -> Element<'_, Message> {
+    let layer_names: Vec<String> = state
+        .side_area()
+        .layers
+        .iter()
+        .map(|layer| layer.name.clone())
+        .collect();
+    let find_layer = layer_names.clone();
     row![
         pick_list(
             state.area_names.clone(),
@@ -679,18 +773,128 @@ pub fn side_area_controls(state: &EditorState) -> Element<'_, Message> {
             |x| Message::SelectArea(AreaPosition::Side, x)
         )
         .on_open(Message::Focus(Focus::PickArea(AreaPosition::Side)))
-        .width(200),
+        .width(125),
         pick_list(
             state.theme_names.clone(),
             Some(state.side_area().theme.clone()),
             |x| Message::SelectTheme(AreaPosition::Side, x)
         )
         .on_open(Message::Focus(Focus::PickTheme(AreaPosition::Side)))
-        .width(200),
+        .width(125),
+        pick_list(
+            layer_names,
+            Some(state.side_area().layers[state.side_layer_idx].name.clone()),
+            move |name| Message::SelectLayer(
+                AreaPosition::Side,
+                find_layer.iter().position(|layer| layer == &name).unwrap()
+            )
+        )
+        .width(150),
     ]
     .spacing(10)
     .clip(true)
     .align_y(iced::alignment::Vertical::Center)
+    .into()
+}
+
+pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
+    let area_id = state.main_area_id.clone();
+    let selected = state.main_layer_idx;
+    let layers = &state.main_area().layers;
+    let bg2_count = layers
+        .iter()
+        .filter(|layer| layer.background == Background::Bg2)
+        .count();
+
+    let mut list = column![];
+    for (layer_idx, layer) in layers.iter().enumerate() {
+        let row_button = button(text(&layer.name).width(Length::Fill))
+            .style(if layer_idx == selected {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .width(Length::Fill)
+            .on_press(Message::SelectLayer(AreaPosition::Main, layer_idx));
+        list = list.push(
+            row![
+                checkbox("", state.visible_layers.get(layer_idx) == Some(&true))
+                    .on_toggle(move |_| Message::ToggleLayerVisibility(layer_idx)),
+                row_button,
+            ]
+            .spacing(5)
+            .align_y(Vertical::Center),
+        );
+    }
+
+    let can_delete =
+        layers.len() > 1 && (layers[selected].background != Background::Bg2 || bg2_count > 1);
+    let backgrounds = if layers[selected].background == Background::Bg2 && bg2_count == 1 {
+        vec![Background::Bg2]
+    } else {
+        vec![Background::Bg1, Background::Bg2]
+    };
+    let delete = button(text("\u{F63B}").font(iced_fonts::BOOTSTRAP_FONT)).style(button::danger);
+    let delete = if can_delete {
+        delete.on_press(Message::DeleteLayer {
+            position: AreaPosition::Main,
+            area_id: area_id.clone(),
+            layer_idx: selected,
+        })
+    } else {
+        delete
+    };
+
+    container(
+        column![
+            row![
+                button(text("\u{F64D}").font(iced_fonts::BOOTSTRAP_FONT))
+                    .style(button::success)
+                    .on_press(Message::AddLayer(AreaPosition::Main)),
+                delete,
+                button(text("\u{F128}").font(iced_fonts::BOOTSTRAP_FONT)).on_press_maybe(
+                    (selected + 1 < layers.len()).then(|| Message::MoveLayer {
+                        position: AreaPosition::Main,
+                        area_id: area_id.clone(),
+                        layer_idx: selected,
+                        new_idx: selected + 1,
+                    })
+                ),
+                button(text("\u{F148}").font(iced_fonts::BOOTSTRAP_FONT)).on_press_maybe(
+                    (selected > 0).then(|| Message::MoveLayer {
+                        position: AreaPosition::Main,
+                        area_id: area_id.clone(),
+                        layer_idx: selected,
+                        new_idx: selected - 1,
+                    })
+                ),
+            ]
+            .spacing(5),
+            Scrollable::new(list.spacing(5)).height(Length::Fill),
+            text_input("Layer name", &layers[selected].name).on_input(move |name| {
+                Message::RenameLayer {
+                    position: AreaPosition::Main,
+                    area_id: area_id.clone(),
+                    layer_idx: selected,
+                    name,
+                }
+            }),
+            pick_list(
+                backgrounds,
+                Some(layers[selected].background),
+                move |background| Message::SetLayerBackground {
+                    position: AreaPosition::Main,
+                    area_id: state.main_area_id.clone(),
+                    layer_idx: selected,
+                    background,
+                }
+            ),
+        ]
+        .spacing(10),
+    )
+    .padding(10)
+    .width(260)
+    .height(Length::Fill)
     .into()
 }
 

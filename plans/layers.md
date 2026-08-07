@@ -43,10 +43,9 @@ Layers are serialized as cropped fragments:
         {
           "position": [36, 6],
           "size": [3, 2],
-          "tiles": [
-            [null, { "palette": 8, "tile": 142, "flip": 0 }, null],
-            [{ "palette": 8, "tile": 158, "flip": 0 }, null, null]
-          ]
+          "palettes": [[null, 8, null], [8, null, null]],
+          "tiles": [[null, 142, null], [158, null, null]],
+          "flips": [[null, 0, null], [0, null, null]]
         }
       ]
     }
@@ -57,7 +56,8 @@ Layers are serialized as cropped fragments:
 Fragment `position` is `[x, y]` and `size` is `[width, height]`, both measured
 in 8x8 tiles. Loading accepts fragments of any size. It rejects fragments whose
 declared size does not match their tile grid, extend outside the area, or
-overlap another fragment in the same layer.
+overlap another fragment in the same layer. Transparent cells are `null` in
+all three grids; mismatched null patterns are invalid.
 
 Saving divides the area into fixed 32x32 regions, crops each region to its
 occupied bounds, and omits empty regions. This keeps output deterministic and

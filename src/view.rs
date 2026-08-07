@@ -1,5 +1,5 @@
-mod area;
 mod animated_tiles;
+mod area;
 mod dynamic_tiles;
 mod graphics;
 mod palette;
@@ -8,11 +8,11 @@ mod tiles;
 
 use std::path::PathBuf;
 
+use animated_tiles::animated_tiles_view;
 use area::{
     add_area_view, add_theme_view, area_grid_view, delete_area_view, delete_theme_view,
-    edit_area_view, main_area_controls, rename_theme_view, side_area_controls,
+    edit_area_view, layer_drawer_view, main_area_controls, rename_theme_view, side_area_controls,
 };
-use animated_tiles::animated_tiles_view;
 use dynamic_tiles::dynamic_tiles_view;
 use graphics::graphics_view;
 use iced::{
@@ -110,6 +110,11 @@ pub fn help_view(_state: &EditorState) -> Element<'_, Message> {
     let controls = vec![
         ("s", "Select tool", "copy tiles, colors, pixels"),
         ("b", "Brush tool", "paste tiles, colors, pixels"),
+        (
+            "e",
+            "Erase tool",
+            "erase placements from the selected layer",
+        ),
         (
             "m",
             "Move tool",
@@ -301,6 +306,11 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
     };
 
     let mut panels = Row::new().push(main_panel).push(vertical_separator());
+    if state.layer_drawer_open {
+        panels = panels
+            .push(layer_drawer_view(state))
+            .push(vertical_separator());
+    }
     if state.dynamic_tiles_open {
         panels = panels
             .push(dynamic_tiles_view(state))

@@ -3,22 +3,21 @@ use iced::{
     keyboard::{self, key},
     widget, window, Event, Point, Task,
 };
-use itertools::Itertools;
 use log::{error, info, warn};
 
 use crate::{
     import::Importer,
     message::{Message, SelectionSource},
     persist::{
-        self, clear_pngs, copy_area_theme, delete_area, delete_area_theme, delete_palette,
-        load_area_list, remap_tiles, rename_area, rename_area_theme, save_area, save_area_png,
-        save_palettes, scan_used_tiles,
+        self, clear_pngs, copy_area_theme, delete_area, delete_area_theme, delete_layer_png,
+        delete_palette, load_area_list, remap_tiles, rename_area, rename_area_theme, save_area,
+        save_area_png, save_palettes, scan_used_tiles,
     },
     state::{
-        Area, AreaId, AreaPosition, ColorIdx, ColorRGB, Dialogue, DynamicTileGrid,
-        DynamicTileGroup, DynamicTilePlacement, DynamicTileTarget, DynamicTileType,
-        DynamicTileVariant, EditorState, Flip, Focus, PaletteId, PixelTarget, Screen,
-        SidePanelView, Tile, TileBlock, TileIdx, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
+        is_valid_layer_name, Area, AreaId, AreaPosition, Background, ColorIdx, ColorRGB, Dialogue,
+        DynamicTileGrid, DynamicTileGroup, DynamicTileTarget, DynamicTileType, DynamicTileVariant,
+        EditorState, Flip, Focus, Layer, PaletteId, PixelTarget, SidePanelView, Tile, TileBlock,
+        TileIdx, TilePlacement, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -44,10 +43,7 @@ fn target_pixel(
     let palette = &state.palettes[palette_idx];
     Ok(match target {
         PixelTarget::Regular(tile) => palette.tiles[tile as usize].pixels[y as usize][x as usize],
-        PixelTarget::Animated {
-            tile_idx,
-            frame,
-        } => {
+        PixelTarget::Animated { tile_idx, frame } => {
             let base_tile = tile_idx / 16 * 16;
             let tile = (tile_idx % 16) as usize;
             palette
@@ -73,10 +69,7 @@ fn set_target_pixel(
         PixelTarget::Regular(tile) => {
             palette.tiles[tile as usize].pixels[y as usize][x as usize] = color
         }
-        PixelTarget::Animated {
-            tile_idx,
-            frame,
-        } => {
+        PixelTarget::Animated { tile_idx, frame } => {
             let base_tile = tile_idx / 16 * 16;
             let tile = (tile_idx % 16) as usize;
             palette
@@ -106,9 +99,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
                 color_idx: last_color_idx,
                 color: last_color,
             } => {
-                palette_id == last_palette_id
-                    && color_idx == last_color_idx
-                    && color == last_color
+                palette_id == last_palette_id && color_idx == last_color_idx && color == last_color
             }
             _ => false,
         },
@@ -153,6 +144,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
         Message::AreaBrush {
             position,
             area_id,
+            layer_idx,
             coords,
             selection,
             palette_only,
@@ -160,18 +152,40 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
             Message::AreaBrush {
                 position: last_position,
                 area_id: last_area_id,
+                layer_idx: last_layer_idx,
                 coords: last_coords,
                 selection: last_selection,
                 palette_only: last_palette_only,
             } => {
                 position == last_position
                     && area_id == last_area_id
+                    && layer_idx == last_layer_idx
                     && coords == last_coords
                     && selection == last_selection
                     && palette_only == last_palette_only
             }
             _ => false,
         },
+        Message::AreaErase {
+            position,
+            area_id,
+            layer_idx,
+            coords,
+            size,
+        } => matches!(
+            last_message,
+            Message::AreaErase {
+                position: last_position,
+                area_id: last_area_id,
+                layer_idx: last_layer_idx,
+                coords: last_coords,
+                size: last_size,
+            } if position == last_position
+                && area_id == last_area_id
+                && layer_idx == last_layer_idx
+                && coords == last_coords
+                && size == last_size
+        ),
         Message::DynamicTileBrush {
             kind,
             variant,
@@ -521,6 +535,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         "b" => {
                             state.tool = Tool::Brush;
                         }
+                        "e" => {
+                            state.tool = Tool::Erase;
+                        }
                         "s" => {
                             state.tool = Tool::Select;
                         }
@@ -541,29 +558,33 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         }
                         "h" => {
                             for i in 0..state.selected_tile_block.size.1 as usize {
-                                state.selected_tile_block.palettes[i].reverse();
-                                state.selected_tile_block.tiles[i].reverse();
-                                state.selected_tile_block.flips[i].reverse();
+                                state.selected_tile_block.placements[i].reverse();
                                 state.selected_gfx[i].reverse();
                                 for j in 0..state.selected_tile_block.size.0 as usize {
-                                    state.selected_tile_block.flips[i][j] =
-                                        state.selected_tile_block.flips[i][j].flip_horizontally();
-                                    state.selected_gfx[i][j] =
-                                        Flip::Horizontal.apply_to_tile(state.selected_gfx[i][j]);
+                                    if let Some(placement) =
+                                        &mut state.selected_tile_block.placements[i][j]
+                                    {
+                                        placement.flip = placement.flip.flip_horizontally();
+                                    }
+                                    if let Some(tile) = &mut state.selected_gfx[i][j] {
+                                        *tile = Flip::Horizontal.apply_to_tile(*tile);
+                                    }
                                 }
                             }
                         }
                         "v" => {
-                            state.selected_tile_block.palettes.reverse();
-                            state.selected_tile_block.tiles.reverse();
-                            state.selected_tile_block.flips.reverse();
+                            state.selected_tile_block.placements.reverse();
                             state.selected_gfx.reverse();
                             for i in 0..state.selected_tile_block.size.1 as usize {
                                 for j in 0..state.selected_tile_block.size.0 as usize {
-                                    state.selected_tile_block.flips[i][j] =
-                                        state.selected_tile_block.flips[i][j].flip_vertically();
-                                    state.selected_gfx[i][j] =
-                                        Flip::Vertical.apply_to_tile(state.selected_gfx[i][j]);
+                                    if let Some(placement) =
+                                        &mut state.selected_tile_block.placements[i][j]
+                                    {
+                                        placement.flip = placement.flip.flip_vertically();
+                                    }
+                                    if let Some(tile) = &mut state.selected_gfx[i][j] {
+                                        *tile = Flip::Vertical.apply_to_tile(*tile);
+                                    }
                                 }
                             }
                         }
@@ -714,10 +735,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 after_frames: vec![empty_grid; kind.after_frame_count()],
             };
             state.dynamic_tiles.groups[group_idx].variants.push(variant);
-            state.dynamic_tile_frames.resize(
-                state.dynamic_tiles.groups[group_idx].variants.len(),
-                0,
-            );
+            state
+                .dynamic_tile_frames
+                .resize(state.dynamic_tiles.groups[group_idx].variants.len(), 0);
             state.dynamic_tiles.modified = true;
         }
         Message::DeleteDynamicTileVariant(variant) => {
@@ -795,11 +815,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             if grid_x >= grid.tiles[grid_y].len() {
                                 break;
                             }
-                            grid.tiles[grid_y][grid_x] = Some(DynamicTilePlacement {
-                                palette: selection.palettes[y][x],
-                                tile: selection.tiles[y][x],
-                                flip: selection.flips[y][x],
-                            });
+                            grid.tiles[grid_y][grid_x] = selection.placements[y][x];
                         }
                     }
                     state.dynamic_tiles.modified = true;
@@ -862,12 +878,16 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("AddPalette")));
         }
-        Message::SetAddPaletteName(new_name) => if let Some(Dialogue::AddPalette { name, .. }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
-        &Message::SetAddPaletteID(new_id) => if let Some(Dialogue::AddPalette { id, .. }) = &mut state.dialogue {
-            *id = new_id;
-        },
+        Message::SetAddPaletteName(new_name) => {
+            if let Some(Dialogue::AddPalette { name, .. }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
+        &Message::SetAddPaletteID(new_id) => {
+            if let Some(Dialogue::AddPalette { id, .. }) = &mut state.dialogue {
+                *id = new_id;
+            }
+        }
         Message::AddPalette { name, id } => {
             if name.is_empty() {
                 warn!("Empty palette name is invalid.");
@@ -900,9 +920,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("RenamePalette")));
         }
-        Message::SetRenamePaletteName(new_name) => if let Some(Dialogue::RenamePalette { name }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
+        Message::SetRenamePaletteName(new_name) => {
+            if let Some(Dialogue::RenamePalette { name }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
         Message::RenamePalette { id: _, name } => {
             if name.is_empty() {
                 warn!("Empty palette name is invalid.");
@@ -974,7 +996,12 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         .iter()
                         .any(|group| group.base_tile == *base)
                 })
-                .or_else(|| palette.animated_tile_groups.first().map(|group| group.base_tile));
+                .or_else(|| {
+                    palette
+                        .animated_tile_groups
+                        .first()
+                        .map(|group| group.base_tile)
+                });
             state.dialogue = Some(Dialogue::AnimatedTiles {
                 base_tile,
                 frame: 0,
@@ -1100,7 +1127,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 .iter_mut()
                 .find(|group| group.base_tile == base_tile)
                 .context("animated tile group not found")?;
-            let last = *group.frames.last().context("animated tile group has no frames")?;
+            let last = *group
+                .frames
+                .last()
+                .context("animated tile group has no frames")?;
             group.frames.resize(frame_count as usize - 1, last);
             palette.modified = true;
             if let Some(Dialogue::AnimatedTiles { frame, .. }) = &mut state.dialogue {
@@ -1311,13 +1341,19 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             for (y, row) in s.iter().enumerate() {
                 for (x, &source_tile) in row.iter().enumerate() {
+                    let Some(source_tile) = source_tile else {
+                        continue;
+                    };
                     let y1 = y + y0 as usize;
                     let x1 = x + x0 as usize;
                     let i = y1 * 16 + x1;
                     if x1 < 16 && i < state.palettes[pal_idx].tiles.len() {
                         let mut tile = source_tile;
                         if let Some(t) = tile_block {
-                            let src_pal_id = t.palettes[y][x];
+                            let Some(placement) = t.placements[y][x] else {
+                                continue;
+                            };
+                            let src_pal_id = placement.palette;
                             if src_pal_id != palette_id {
                                 let src_pal_idx = state.palettes_id_idx_map[&src_pal_id];
                                 let src_pal = &state.palettes[src_pal_idx];
@@ -1386,15 +1422,21 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("AddArea")));
         }
-        Message::SetAddAreaName(new_name) => if let Some(Dialogue::AddArea { name, .. }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
-        &Message::SetAddAreaSizeX(new_x) => if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
-            size.0 = new_x;
-        },
-        &Message::SetAddAreaSizeY(new_y) => if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
-            size.1 = new_y;
-        },
+        Message::SetAddAreaName(new_name) => {
+            if let Some(Dialogue::AddArea { name, .. }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
+        &Message::SetAddAreaSizeX(new_x) => {
+            if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
+                size.0 = new_x;
+            }
+        }
+        &Message::SetAddAreaSizeY(new_y) => {
+            if let Some(Dialogue::AddArea { size, .. }) = &mut state.dialogue {
+                size.1 = new_y;
+            }
+        }
         Message::AddArea { name, size } => {
             if name.is_empty() {
                 warn!("Empty area name is invalid.");
@@ -1417,15 +1459,15 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         size: *size,
                         vanilla_map_id: state.areas[&state.main_area_id].vanilla_map_id,
                         bg_color: state.areas[&state.main_area_id].bg_color,
-                        screens: (0..size.0)
-                            .cartesian_product(0..size.1)
-                            .map(|(x, y)| Screen {
-                                position: (x, y),
-                                palettes: [[0; 32]; 32],
-                                tiles: [[0; 32]; 32],
-                                flips: [[Flip::None; 32]; 32],
-                            })
-                            .collect(),
+                        layers: vec![Layer {
+                            modified: true,
+                            name: "Main".to_string(),
+                            background: Background::Bg2,
+                            tiles: vec![
+                                vec![Some(TilePlacement::default()); size.0 as usize * 32];
+                                size.1 as usize * 32
+                            ],
+                        }],
                     },
                 )?;
                 save_area(state, &state.main_area_id.clone())?;
@@ -1440,9 +1482,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("EditArea")));
         }
-        Message::SetEditAreaName(new_name) => if let Some(Dialogue::EditArea { name }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
+        Message::SetEditAreaName(new_name) => {
+            if let Some(Dialogue::EditArea { name }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
         Message::EditArea { old_name, new_name } => {
             if new_name.is_empty() {
                 warn!("Empty area name is invalid.");
@@ -1548,15 +1592,243 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 },
             )?;
         }
+        Message::ToggleLayerDrawer => state.layer_drawer_open = !state.layer_drawer_open,
+        &Message::SelectLayer(position, layer_idx) => {
+            if layer_idx >= state.area(position).layers.len() {
+                return Ok(None);
+            }
+            match position {
+                AreaPosition::Main => {
+                    state.main_layer_idx = layer_idx;
+                    state.visible_layers[layer_idx] = true;
+                }
+                AreaPosition::Side => state.side_layer_idx = layer_idx,
+            }
+        }
+        &Message::ToggleLayerVisibility(layer_idx) => {
+            let Some(visible) = state.visible_layers.get_mut(layer_idx) else {
+                return Ok(None);
+            };
+            *visible = !*visible;
+        }
+        &Message::AddLayer(position) => {
+            let selected = state.selected_layer_idx(position);
+            let same_side =
+                position == AreaPosition::Main && state.side_area_id == state.main_area_id;
+            let mut suffix = 1;
+            let name = loop {
+                let name = if suffix == 1 {
+                    "Layer".to_string()
+                } else {
+                    format!("Layer {suffix}")
+                };
+                if !state
+                    .area(position)
+                    .layers
+                    .iter()
+                    .any(|layer| layer.name == name)
+                {
+                    break name;
+                }
+                suffix += 1;
+            };
+            let layer_idx = selected + 1;
+            let area = state.area_mut(position);
+            area.layers.insert(
+                layer_idx,
+                Layer {
+                    modified: true,
+                    name,
+                    background: Background::Bg2,
+                    tiles: vec![vec![None; area.size.0 as usize * 32]; area.size.1 as usize * 32],
+                },
+            );
+            area.modified = true;
+            match position {
+                AreaPosition::Main => {
+                    state.main_layer_idx = layer_idx;
+                    state.visible_layers.insert(layer_idx, true);
+                    if same_side && state.side_layer_idx >= layer_idx {
+                        state.side_layer_idx += 1;
+                    }
+                }
+                AreaPosition::Side => state.side_layer_idx = layer_idx,
+            }
+        }
+        Message::DeleteLayer {
+            position,
+            area_id,
+            layer_idx,
+        } => {
+            state.switch_area(*position, area_id)?;
+            let same_side = *position == AreaPosition::Main && state.side_area_id == *area_id;
+            let area = state.area(*position);
+            let Some(layer) = area.layers.get(*layer_idx) else {
+                return Ok(None);
+            };
+            if area.layers.len() == 1
+                || (layer.background == Background::Bg2
+                    && area
+                        .layers
+                        .iter()
+                        .filter(|layer| layer.background == Background::Bg2)
+                        .count()
+                        == 1)
+            {
+                warn!("Not allowed to delete the final layer or final BG2 layer.");
+                return Ok(None);
+            }
+            let name = layer.name.clone();
+            delete_layer_png(state, area_id, &name)?;
+            let area = state.area_mut(*position);
+            area.layers.remove(*layer_idx);
+            area.modified = true;
+            let selected = (*layer_idx).min(area.layers.len() - 1);
+            match position {
+                AreaPosition::Main => {
+                    state.visible_layers.remove(*layer_idx);
+                    state.main_layer_idx = selected;
+                    state.visible_layers[selected] = true;
+                    if same_side {
+                        if state.side_layer_idx > *layer_idx {
+                            state.side_layer_idx -= 1;
+                        } else if state.side_layer_idx == *layer_idx {
+                            state.side_layer_idx = selected;
+                        }
+                    }
+                }
+                AreaPosition::Side => state.side_layer_idx = selected,
+            }
+        }
+        Message::RestoreLayer {
+            position,
+            area_id,
+            layer_idx,
+            layer,
+        } => {
+            state.switch_area(*position, area_id)?;
+            let same_side = *position == AreaPosition::Main && state.side_area_id == *area_id;
+            let mut layer = layer.clone();
+            layer.modified = true;
+            let area = state.area_mut(*position);
+            let layer_idx = (*layer_idx).min(area.layers.len());
+            area.layers.insert(layer_idx, layer);
+            area.modified = true;
+            match position {
+                AreaPosition::Main => {
+                    state.visible_layers.insert(layer_idx, true);
+                    state.main_layer_idx = layer_idx;
+                    if same_side && state.side_layer_idx >= layer_idx {
+                        state.side_layer_idx += 1;
+                    }
+                }
+                AreaPosition::Side => state.side_layer_idx = layer_idx,
+            }
+        }
+        Message::MoveLayer {
+            position,
+            area_id,
+            layer_idx,
+            new_idx,
+        } => {
+            state.switch_area(*position, area_id)?;
+            let same_side = *position == AreaPosition::Main && state.side_area_id == *area_id;
+            let area = state.area_mut(*position);
+            if *layer_idx >= area.layers.len() || *new_idx >= area.layers.len() {
+                return Ok(None);
+            }
+            let layer = area.layers.remove(*layer_idx);
+            area.layers.insert(*new_idx, layer);
+            area.modified = true;
+            match position {
+                AreaPosition::Main => {
+                    let visible = state.visible_layers.remove(*layer_idx);
+                    state.visible_layers.insert(*new_idx, visible);
+                    state.main_layer_idx = *new_idx;
+                    if same_side {
+                        if state.side_layer_idx == *layer_idx {
+                            state.side_layer_idx = *new_idx;
+                        } else if layer_idx < new_idx
+                            && state.side_layer_idx > *layer_idx
+                            && state.side_layer_idx <= *new_idx
+                        {
+                            state.side_layer_idx -= 1;
+                        } else if new_idx < layer_idx
+                            && state.side_layer_idx >= *new_idx
+                            && state.side_layer_idx < *layer_idx
+                        {
+                            state.side_layer_idx += 1;
+                        }
+                    }
+                }
+                AreaPosition::Side => state.side_layer_idx = *new_idx,
+            }
+        }
+        Message::RenameLayer {
+            position,
+            area_id,
+            layer_idx,
+            name,
+        } => {
+            state.switch_area(*position, area_id)?;
+            let area = state.area(*position);
+            if !is_valid_layer_name(name)
+                || area
+                    .layers
+                    .iter()
+                    .enumerate()
+                    .any(|(idx, layer)| idx != *layer_idx && layer.name == *name)
+            {
+                warn!("Invalid or duplicate layer name: {name}");
+                return Ok(None);
+            }
+            let old_name = area.layers[*layer_idx].name.clone();
+            if old_name == *name {
+                return Ok(None);
+            }
+            delete_layer_png(state, area_id, &old_name)?;
+            let area = state.area_mut(*position);
+            area.layers[*layer_idx].name = name.clone();
+            area.layers[*layer_idx].modified = true;
+            area.modified = true;
+        }
+        Message::SetLayerBackground {
+            position,
+            area_id,
+            layer_idx,
+            background,
+        } => {
+            state.switch_area(*position, area_id)?;
+            let area = state.area_mut(*position);
+            if area.layers[*layer_idx].background == Background::Bg2
+                && *background == Background::Bg1
+                && area
+                    .layers
+                    .iter()
+                    .filter(|layer| layer.background == Background::Bg2)
+                    .count()
+                    == 1
+            {
+                warn!("Not allowed to change the final BG2 layer to BG1.");
+                return Ok(None);
+            }
+            if area.layers[*layer_idx].background == *background {
+                return Ok(None);
+            }
+            area.layers[*layer_idx].background = *background;
+            area.modified = true;
+        }
         Message::AddThemeDialogue => {
             state.dialogue = Some(Dialogue::AddTheme {
                 name: "".to_string(),
             });
             return Ok(Some(iced::widget::text_input::focus("AddTheme")));
         }
-        Message::SetAddThemeName(new_name) => if let Some(Dialogue::AddTheme { name }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
+        Message::SetAddThemeName(new_name) => {
+            if let Some(Dialogue::AddTheme { name }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
         Message::AddTheme(theme_name) => {
             if theme_name.is_empty() {
                 warn!("Empty theme name is invalid.");
@@ -1590,9 +1862,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             });
             return Ok(Some(iced::widget::text_input::focus("RenameTheme")));
         }
-        Message::SetRenameThemeName(new_name) => if let Some(Dialogue::RenameTheme { name }) = &mut state.dialogue {
-            *name = new_name.clone();
-        },
+        Message::SetRenameThemeName(new_name) => {
+            if let Some(Dialogue::RenameTheme { name }) = &mut state.dialogue {
+                *name = new_name.clone();
+            }
+        }
         Message::RenameTheme { old_name, new_name } => {
             if new_name.is_empty() {
                 warn!("Empty theme name is invalid.");
@@ -1707,25 +1981,19 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
             }
 
-            let mut palettes: Vec<Vec<PaletteId>> = vec![];
-            let mut tiles: Vec<Vec<TileIdx>> = vec![];
-            let mut flips: Vec<Vec<Flip>> = vec![];
+            let mut placements = vec![];
             for y in top..=bottom {
-                let mut pal_row: Vec<PaletteId> = vec![];
-                let mut tile_row: Vec<TileIdx> = vec![];
-                let mut flip_row: Vec<Flip> = vec![];
+                let mut row = vec![];
                 for x in left..=right {
-                    match state.selection_source {
-                        SelectionSource::Area(position) => {
-                            pal_row.push(state.area(position).get_palette(x, y)?);
-                            tile_row.push(state.area(position).get_tile(x, y)?);
-                            flip_row.push(state.area(position).get_flip(x, y)?);
-                        }
-                        SelectionSource::Tileset => {
-                            pal_row.push(state.palettes[state.palette_idx].id);
-                            tile_row.push(y * 16 + x);
-                            flip_row.push(Flip::None)
-                        }
+                    let placement = match state.selection_source {
+                        SelectionSource::Area(position) => state
+                            .area(position)
+                            .get_layer_placement(state.selected_layer_idx(position), x, y)?,
+                        SelectionSource::Tileset => Some(TilePlacement {
+                            palette: state.palettes[state.palette_idx].id,
+                            tile: y * 16 + x,
+                            flip: Flip::None,
+                        }),
                         SelectionSource::DynamicTiles {
                             kind,
                             variant,
@@ -1751,33 +2019,20 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                                     frame
                                 }
                             };
-                            let Some(placement) = grid
-                                .tiles
+                            grid.tiles
                                 .get(y as usize)
                                 .and_then(|row| row.get(x as usize))
                                 .copied()
                                 .flatten()
-                            else {
-                                warn!("Not selecting dynamic tiles: selection contains empty cells.");
-                                state.start_coords = None;
-                                state.end_coords = None;
-                                return Ok(None);
-                            };
-                            pal_row.push(placement.palette);
-                            tile_row.push(placement.tile);
-                            flip_row.push(placement.flip);
                         }
-                    }
+                    };
+                    row.push(placement);
                 }
-                palettes.push(pal_row);
-                tiles.push(tile_row);
-                flips.push(flip_row);
+                placements.push(row);
             }
             state.selected_tile_block = TileBlock {
                 size: (right - left + 1, bottom - top + 1),
-                palettes,
-                tiles,
-                flips,
+                placements,
             };
             let s = &state.selected_tile_block;
 
@@ -1785,9 +2040,15 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             state.start_coords = None;
             state.end_coords = None;
             if left == right && top == bottom {
+                let Some(placement) = s.placements[0][0] else {
+                    state.tile_idx = None;
+                    state.pixel_target = None;
+                    state.pixel_coords = None;
+                    return Ok(Some(Task::none()));
+                };
                 return Ok(Some(Task::done(Message::OpenTile {
-                    palette_id: s.palettes[0][0],
-                    tile_idx: s.tiles[0][0],
+                    palette_id: placement.palette,
+                    tile_idx: placement.tile,
                 })));
             } else {
                 state.tile_idx = None;
@@ -1798,6 +2059,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         &Message::AreaBrush {
             position,
             ref area_id,
+            layer_idx,
             coords,
             ref selection,
             palette_only,
@@ -1808,14 +2070,40 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             let area = state.area_mut(position);
             for y in 0..s.size.1 {
                 for x in 0..s.size.0 {
-                    let _ = area.set_palette(p.x + x, p.y + y, s.palettes[y as usize][x as usize]);
-                    if !palette_only {
-                        let _ = area.set_tile(p.x + x, p.y + y, s.tiles[y as usize][x as usize]);
-                        let _ = area.set_flip(p.x + x, p.y + y, s.flips[y as usize][x as usize]);
+                    let source = s.placements[y as usize][x as usize];
+                    if palette_only {
+                        if let (Some(source), Ok(Some(mut destination))) = (
+                            source,
+                            area.get_layer_placement(layer_idx, p.x + x, p.y + y),
+                        ) {
+                            destination.palette = source.palette;
+                            let _ = area.set_layer_placement(
+                                layer_idx,
+                                p.x + x,
+                                p.y + y,
+                                Some(destination),
+                            );
+                        }
+                    } else {
+                        let _ = area.set_layer_placement(layer_idx, p.x + x, p.y + y, source);
                     }
                 }
             }
-            area.modified = true;
+        }
+        &Message::AreaErase {
+            position,
+            ref area_id,
+            layer_idx,
+            coords,
+            size,
+        } => {
+            state.switch_area(position, area_id)?;
+            let area = state.area_mut(position);
+            for y in 0..size {
+                for x in 0..size {
+                    let _ = area.set_layer_placement(layer_idx, coords.x + x, coords.y + y, None);
+                }
+            }
         }
         &Message::OpenTile {
             palette_id,
@@ -1855,12 +2143,16 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             // Validate that the selected tiles are unique, and create the mapping:
             for y in 0..src_selection.size.1 {
                 for x in 0..src_selection.size.0 {
-                    let src_palette_id = src_selection.palettes[y as usize][x as usize];
-                    let src_tile_idx = src_selection.tiles[y as usize][x as usize];
-                    let src_flip = src_selection.flips[y as usize][x as usize];
-                    let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
-                    let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
-                    let dst_flip = dst_selection.flips[y as usize][x as usize];
+                    let src = src_selection.placements[y as usize][x as usize]
+                        .context("transparent source tile")?;
+                    let dst = dst_selection.placements[y as usize][x as usize]
+                        .context("transparent destination tile")?;
+                    let src_palette_id = src.palette;
+                    let src_tile_idx = src.tile;
+                    let src_flip = src.flip;
+                    let dst_palette_id = dst.palette;
+                    let dst_tile_idx = dst.tile;
+                    let dst_flip = dst.flip;
                     if mapping.contains_key(&(src_palette_id, src_tile_idx)) {
                         warn!("Not moving tiles: palette {} tile number {} (${:x}) occurs twice in selection",
                                 src_palette_id, src_tile_idx, src_tile_idx);
@@ -1880,8 +2172,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             // Validate that the source and destination tiles are disjoint:
             for y in 0..dst_selection.size.1 {
                 for x in 0..dst_selection.size.0 {
-                    let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
-                    let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
+                    let dst = dst_selection.placements[y as usize][x as usize]
+                        .context("transparent destination tile")?;
+                    let dst_palette_id = dst.palette;
+                    let dst_tile_idx = dst.tile;
                     if mapping.contains_key(&(dst_palette_id, dst_tile_idx)) {
                         warn!("Not moving tiles: palette {} tile number {} (${:x}) occurs in both the source and destination",
                                 dst_palette_id, dst_tile_idx, dst_tile_idx);
@@ -1896,8 +2190,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 let used_tiles = scan_used_tiles(state)?;
                 for y in 0..dst_selection.size.1 {
                     for x in 0..dst_selection.size.0 {
-                        let dst_palette_id = dst_selection.palettes[y as usize][x as usize];
-                        let dst_tile_idx = dst_selection.tiles[y as usize][x as usize];
+                        let dst = dst_selection.placements[y as usize][x as usize]
+                            .context("transparent destination tile")?;
+                        let dst_palette_id = dst.palette;
+                        let dst_tile_idx = dst.tile;
                         if used_tiles.contains(&(dst_palette_id, dst_tile_idx)) {
                             return Ok(Some(Task::done(Message::MoveTilesConfirmDialogue {
                                 src_selection: src_selection.clone(),
@@ -2021,22 +2317,27 @@ pub fn update_palette_order(state: &mut EditorState) {
     }
 }
 
-pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Tile>> {
+pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Option<Tile>>> {
     let mut gfx = vec![];
     for y in 0..s.size.1 {
-        let mut gfx_row: Vec<Tile> = vec![];
+        let mut gfx_row: Vec<Option<Tile>> = vec![];
         for x in 0..s.size.0 {
-            let palette_id = s.palettes[y as usize][x as usize];
-            let tile_idx = s.tiles[y as usize][x as usize];
-            let flip = s.flips[y as usize][x as usize];
-            let tile = if let Some(&idx) = state.palettes_id_idx_map.get(&palette_id) {
-                if (tile_idx as usize) < state.palettes[idx].tiles.len() {
-                    flip.apply_to_tile(state.palettes[idx].tiles[tile_idx as usize])
+            let tile = if let Some(placement) = s.placements[y as usize][x as usize] {
+                if let Some(&idx) = state.palettes_id_idx_map.get(&placement.palette) {
+                    if (placement.tile as usize) < state.palettes[idx].tiles.len() {
+                        Some(
+                            placement
+                                .flip
+                                .apply_to_tile(state.palettes[idx].tiles[placement.tile as usize]),
+                        )
+                    } else {
+                        Some(Tile::default())
+                    }
                 } else {
-                    Tile::default()
+                    Some(Tile::default())
                 }
             } else {
-                Tile::default()
+                None
             };
             gfx_row.push(tile);
         }

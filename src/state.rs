@@ -4,7 +4,7 @@ use log::info;
 use notify::Watcher;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -28,9 +28,7 @@ pub type CollisionType = u8;
 pub type ColorRGB = [ColorValue; 3];
 pub type TilePixels = [[ColorIdx; 8]; 8];
 
-#[derive(
-    Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
-)]
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DynamicTileType {
     CutGrass,
@@ -159,8 +157,8 @@ impl std::fmt::Display for DynamicTileType {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct DynamicTilePlacement {
+#[derive(Copy, Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct TilePlacement {
     pub palette: PaletteId,
     pub tile: TileIdx,
     pub flip: Flip,
@@ -174,7 +172,7 @@ pub enum DynamicTileTarget {
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq)]
 pub struct DynamicTileGrid {
-    pub tiles: Vec<Vec<Option<DynamicTilePlacement>>>,
+    pub tiles: Vec<Vec<Option<TilePlacement>>>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -366,32 +364,43 @@ impl Flip {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct Screen {
-    // X and Y position of the screen (256 x 256 block) within the area, in screen counts:
-    // The screens are always listed in row-major order, so `position` is
-    // redundant; its only purpose is to improve readability of the JSON.
-    pub position: (u8, u8),
-    pub palettes: [[PaletteId; 32]; 32],
-    pub tiles: [[TileIdx; 32]; 32],
-    pub flips: [[Flip; 32]; 32],
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Background {
+    Bg1,
+    Bg2,
 }
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct Area {
-    #[serde(skip_serializing, skip_deserializing)]
+impl std::fmt::Display for Background {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bg1 => write!(f, "BG1"),
+            Self::Bg2 => write!(f, "BG2"),
+        }
+    }
+}
+
+pub fn is_valid_layer_name(name: &str) -> bool {
+    !name.is_empty() && Path::new(name).file_name().and_then(|name| name.to_str()) == Some(name)
+}
+
+#[derive(Clone, Debug)]
+pub struct Layer {
     pub modified: bool,
-    #[serde(skip_serializing, skip_deserializing)]
+    pub name: String,
+    pub background: Background,
+    pub tiles: Vec<Vec<Option<TilePlacement>>>,
+}
+
+pub struct Area {
+    pub modified: bool,
     pub name: AreaName,
-    #[serde(skip_serializing, skip_deserializing)]
     pub theme: ThemeName,
     pub vanilla_map_id: Option<u8>,
     pub bg_color: ColorRGB,
     // X and Y dimensions, measured in number of screens:
     pub size: (u8, u8),
-    // A 'screen' is a 256x256 pixel section, roughly the size that fits on camera at once.
-    // Splitting it up like this helps with formatting of the JSON, e.g. for viewing git diffs.
-    pub screens: Vec<Screen>,
+    pub layers: Vec<Layer>,
 }
 
 impl Area {
@@ -402,55 +411,107 @@ impl Area {
         }
     }
 
-    pub fn get_screen_coords(&self, x: TileCoord, y: TileCoord) -> Result<(usize, usize, usize)> {
+    pub fn get_layer_coords(&self, x: TileCoord, y: TileCoord) -> Result<(usize, usize)> {
         if x >= self.size.0 as TileCoord * 32 || y >= self.size.1 as TileCoord * 32 {
             bail!("out of range");
         }
-        let screen_x = (x / 32) as usize;
-        let screen_y = (y / 32) as usize;
-        let screen_i = screen_y * self.size.0 as usize + screen_x;
-        Ok((screen_i, (x % 32) as usize, (y % 32) as usize))
+        Ok((x as usize, y as usize))
+    }
+
+    pub fn get_bottom_bg2_layer(&self) -> Result<&Layer> {
+        self.layers
+            .iter()
+            .find(|layer| layer.background == Background::Bg2)
+            .context("area has no BG2 layer")
+    }
+
+    pub fn get_bottom_bg2_layer_mut(&mut self) -> Result<&mut Layer> {
+        self.layers
+            .iter_mut()
+            .find(|layer| layer.background == Background::Bg2)
+            .context("area has no BG2 layer")
+    }
+
+    pub fn get_placement(&self, x: TileCoord, y: TileCoord) -> Result<TilePlacement> {
+        let (x, y) = self.get_layer_coords(x, y)?;
+        self.get_bottom_bg2_layer()?.tiles[y][x].context("transparent tile")
+    }
+
+    pub fn get_layer_placement(
+        &self,
+        layer_idx: usize,
+        x: TileCoord,
+        y: TileCoord,
+    ) -> Result<Option<TilePlacement>> {
+        let (x, y) = self.get_layer_coords(x, y)?;
+        Ok(self.layers.get(layer_idx).context("layer not found")?.tiles[y][x])
+    }
+
+    pub fn set_layer_placement(
+        &mut self,
+        layer_idx: usize,
+        x: TileCoord,
+        y: TileCoord,
+        placement: Option<TilePlacement>,
+    ) -> Result<()> {
+        let (x, y) = self.get_layer_coords(x, y)?;
+        let layer = self.layers.get_mut(layer_idx).context("layer not found")?;
+        layer.tiles[y][x] = placement;
+        layer.modified = true;
+        self.modified = true;
+        Ok(())
     }
 
     pub fn get_palette(&self, x: TileCoord, y: TileCoord) -> Result<PaletteId> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        Ok(self.screens[i].palettes[sy][sx])
+        Ok(self.get_placement(x, y)?.palette)
     }
 
     pub fn get_tile(&self, x: TileCoord, y: TileCoord) -> Result<TileIdx> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        Ok(self.screens[i].tiles[sy][sx])
+        Ok(self.get_placement(x, y)?.tile)
     }
 
     pub fn get_flip(&self, x: TileCoord, y: TileCoord) -> Result<Flip> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        Ok(self.screens[i].flips[sy][sx])
+        Ok(self.get_placement(x, y)?.flip)
     }
 
-    pub fn set_tile(&mut self, x: TileCoord, y: TileCoord, tile_idx: TileIdx) -> Result<()> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        self.screens[i].tiles[sy][sx] = tile_idx;
+    pub fn set_placement(
+        &mut self,
+        x: TileCoord,
+        y: TileCoord,
+        placement: TilePlacement,
+    ) -> Result<()> {
+        let (x, y) = self.get_layer_coords(x, y)?;
+        let layer = self.get_bottom_bg2_layer_mut()?;
+        layer.tiles[y][x] = Some(placement);
+        layer.modified = true;
+        self.modified = true;
         Ok(())
     }
 
-    pub fn set_palette(&mut self, x: TileCoord, y: TileCoord, palette_id: PaletteId) -> Result<()> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        self.screens[i].palettes[sy][sx] = palette_id;
-        Ok(())
+    pub fn set_tile(&mut self, x: TileCoord, y: TileCoord, tile: TileIdx) -> Result<()> {
+        let mut placement = self.get_placement(x, y)?;
+        placement.tile = tile;
+        self.set_placement(x, y, placement)
+    }
+
+    pub fn set_palette(&mut self, x: TileCoord, y: TileCoord, palette: PaletteId) -> Result<()> {
+        let mut placement = self.get_placement(x, y)?;
+        placement.palette = palette;
+        self.set_placement(x, y, placement)
     }
 
     pub fn set_flip(&mut self, x: TileCoord, y: TileCoord, flip: Flip) -> Result<()> {
-        let (i, sx, sy) = self.get_screen_coords(x, y)?;
-        self.screens[i].flips[sy][sx] = flip;
-        Ok(())
+        let mut placement = self.get_placement(x, y)?;
+        placement.flip = flip;
+        self.set_placement(x, y, placement)
     }
 
     pub fn get_unique_palettes(&self) -> Vec<PaletteId> {
         let mut palettes: HashSet<PaletteId> = HashSet::new();
-        for s in &self.screens {
-            for y in 0..32 {
-                for x in 0..32 {
-                    palettes.insert(s.palettes[y][x]);
+        if let Ok(layer) = self.get_bottom_bg2_layer() {
+            for row in &layer.tiles {
+                for placement in row.iter().flatten() {
+                    palettes.insert(placement.palette);
                 }
             }
         }
@@ -505,9 +566,7 @@ pub enum Dialogue {
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub struct TileBlock {
     pub size: (TileCoord, TileCoord),
-    pub palettes: Vec<Vec<PaletteId>>,
-    pub tiles: Vec<Vec<TileIdx>>,
-    pub flips: Vec<Vec<Flip>>,
+    pub placements: Vec<Vec<Option<TilePlacement>>>,
 }
 
 // At the moment, Iced's support for tracking widget focus is fairly incomplete,
@@ -546,6 +605,7 @@ pub enum Tool {
     #[default]
     Select,
     Brush,
+    Erase,
     Move,
 }
 
@@ -599,9 +659,13 @@ pub struct EditorState {
     pub end_coords: Option<(TileCoord, TileCoord)>,
     pub hover_coords: Option<(TileCoord, TileCoord)>,
     pub selected_tile_block: TileBlock,
-    pub selected_gfx: Vec<Vec<Tile>>,
+    pub selected_gfx: Vec<Vec<Option<Tile>>>,
     pub show_grid_16: bool,
     pub snap_grid_16: bool,
+    pub main_layer_idx: usize,
+    pub side_layer_idx: usize,
+    pub visible_layers: Vec<bool>,
+    pub layer_drawer_open: bool,
 
     // Filesystem watch (to detect externa modifications)
     pub watcher: Option<notify::RecommendedWatcher>,
@@ -651,6 +715,38 @@ impl EditorState {
         self.areas.get_mut(&self.area_id(position).clone()).unwrap()
     }
 
+    pub fn selected_layer_idx(&self, position: AreaPosition) -> usize {
+        match position {
+            AreaPosition::Main => self.main_layer_idx,
+            AreaPosition::Side => self.side_layer_idx,
+        }
+    }
+
+    pub fn reset_layer_state(&mut self, position: AreaPosition) {
+        let area = self.area(position);
+        let bg1 = area
+            .layers
+            .iter()
+            .position(|layer| layer.background == Background::Bg1);
+        let bg2 = area
+            .layers
+            .iter()
+            .position(|layer| layer.background == Background::Bg2)
+            .unwrap_or(0);
+        let layer_count = area.layers.len();
+        match position {
+            AreaPosition::Main => {
+                self.main_layer_idx = bg2;
+                self.visible_layers = vec![false; layer_count];
+                if let Some(bg1) = bg1 {
+                    self.visible_layers[bg1] = true;
+                }
+                self.visible_layers[bg2] = true;
+            }
+            AreaPosition::Side => self.side_layer_idx = bg2,
+        }
+    }
+
     pub fn set_area(&mut self, position: AreaPosition, area: Area) -> Result<()> {
         let id = area.id();
         self.areas.insert(id.clone(), area);
@@ -673,10 +769,14 @@ impl EditorState {
     }
 
     pub fn switch_area(&mut self, position: AreaPosition, area_id: &AreaId) -> Result<()> {
+        let changed = self.area_id(position) != area_id;
         if !self.areas.contains_key(area_id) {
             self.load_area(area_id)?;
         }
         *self.area_id_mut(position) = area_id.clone();
+        if changed {
+            self.reset_layer_state(position);
+        }
         self.cleanup_areas()?;
         Ok(())
     }
@@ -737,23 +837,20 @@ pub fn ensure_themes_non_empty(state: &mut EditorState) {
 pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
     if state.area_names.is_empty() {
         state.area_names.push("Example".to_string());
-        let mut area = Area {
+        let area = Area {
+            modified: true,
             name: "Example".to_string(),
             theme: "Base".to_string(),
+            vanilla_map_id: None,
+            bg_color: [0; 3],
             size: (2, 2),
-            ..Area::default()
+            layers: vec![Layer {
+                modified: true,
+                name: "Main".to_string(),
+                background: Background::Bg2,
+                tiles: vec![vec![Some(TilePlacement::default()); 64]; 64],
+            }],
         };
-        for y in 0..2 {
-            for x in 0..2 {
-                area.screens.push(Screen {
-                    position: (x, y),
-                    palettes: [[0; 32]; 32],
-                    tiles: [[0; 32]; 32],
-                    flips: [[Flip::None; 32]; 32],
-                });
-            }
-        }
-        area.modified = true;
         state.set_area(AreaPosition::Main, area)?;
     }
     Ok(())
@@ -822,6 +919,10 @@ pub fn get_initial_state() -> Result<EditorState> {
         selected_gfx: vec![],
         show_grid_16: false,
         snap_grid_16: false,
+        main_layer_idx: 0,
+        side_layer_idx: 0,
+        visible_layers: vec![],
+        layer_drawer_open: false,
         pixel_coords: None,
         pixel_target: None,
         watcher: None,
@@ -841,5 +942,7 @@ pub fn get_initial_state() -> Result<EditorState> {
     ensure_themes_non_empty(&mut state);
     ensure_areas_non_empty(&mut state)?;
     ensure_palettes_non_empty(&mut state);
+    state.reset_layer_state(AreaPosition::Main);
+    state.reset_layer_state(AreaPosition::Side);
     Ok(state)
 }

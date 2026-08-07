@@ -10,14 +10,15 @@ use hashbrown::{HashMap, HashSet};
 use json_pretty_compact::PrettyCompactFormatter;
 use log::info;
 use notify::{recommended_watcher, EventHandler};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Serializer;
 
 use crate::{
     helpers::scale_color,
     state::{
-        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty, Area, AreaId,
-        AreaPosition, DynamicTiles, EditorState, Flip, Palette, PaletteId, TileIdx,
+        ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty,
+        is_valid_layer_name, Area, AreaId, AreaPosition, Background, DynamicTiles, EditorState,
+        Flip, Layer, Palette, PaletteId, TileIdx, TilePlacement,
     },
     update::update_palette_order,
 };
@@ -301,78 +302,186 @@ pub fn load_area_list(state: &mut EditorState) -> Result<()> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+struct StoredArea {
+    vanilla_map_id: Option<u8>,
+    bg_color: [u8; 3],
+    size: (u8, u8),
+    layers: Vec<StoredLayer>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredLayer {
+    name: String,
+    background: Background,
+    screens: Vec<StoredScreen>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredScreen {
+    position: (u16, u16),
+    size: (u16, u16),
+    palettes: Vec<Vec<Option<PaletteId>>>,
+    tiles: Vec<Vec<Option<TileIdx>>>,
+    flips: Vec<Vec<Option<Flip>>>,
+}
+
 pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
     let area_path = get_area_dir(state)?
         .join(area_id.area.clone())
         .join(format!("{}.json", area_id.theme));
-    let mut area: Area = load_json(&area_path)?;
-    area.name = area_id.area.to_owned();
-    area.theme = area_id.theme.to_owned();
-    Ok(area)
+    let stored: StoredArea = load_json(&area_path)?;
+    let width = stored.size.0 as usize * 32;
+    let height = stored.size.1 as usize * 32;
+    if width == 0 || height == 0 {
+        bail!("area size must be nonzero");
+    }
+    let mut names = HashSet::new();
+    let mut has_bg2 = false;
+    let mut layers = Vec::with_capacity(stored.layers.len());
+
+    for stored_layer in stored.layers {
+        if !is_valid_layer_name(&stored_layer.name) {
+            bail!("invalid layer name: {}", stored_layer.name);
+        }
+        if !names.insert(stored_layer.name.clone()) {
+            bail!("duplicate layer name: {}", stored_layer.name);
+        }
+        if stored_layer.background == Background::Bg2 {
+            has_bg2 = true;
+        }
+
+        let mut tiles = vec![vec![None; width]; height];
+        let mut covered = vec![vec![false; width]; height];
+        for screen in stored_layer.screens {
+            let screen_width = screen.size.0 as usize;
+            let screen_height = screen.size.1 as usize;
+            if screen_width == 0
+                || screen_height == 0
+                || screen.palettes.len() != screen_height
+                || screen.tiles.len() != screen_height
+                || screen.flips.len() != screen_height
+            {
+                bail!("invalid screen size in layer {}", stored_layer.name);
+            }
+            let end_x = screen.position.0 as usize + screen_width;
+            let end_y = screen.position.1 as usize + screen_height;
+            if end_x > width || end_y > height {
+                bail!("screen outside area in layer {}", stored_layer.name);
+            }
+            for y in 0..screen_height {
+                if screen.palettes[y].len() != screen_width
+                    || screen.tiles[y].len() != screen_width
+                    || screen.flips[y].len() != screen_width
+                {
+                    bail!("invalid screen row size in layer {}", stored_layer.name);
+                }
+                for x in 0..screen_width {
+                    let area_x = screen.position.0 as usize + x;
+                    let area_y = screen.position.1 as usize + y;
+                    if covered[area_y][area_x] {
+                        bail!("overlapping screens in layer {}", stored_layer.name);
+                    }
+                    covered[area_y][area_x] = true;
+                    tiles[area_y][area_x] = match (
+                        screen.palettes[y][x],
+                        screen.tiles[y][x],
+                        screen.flips[y][x],
+                    ) {
+                        (Some(palette), Some(tile), Some(flip)) => Some(TilePlacement {
+                            palette,
+                            tile,
+                            flip,
+                        }),
+                        (None, None, None) => None,
+                        _ => bail!("mismatched transparent cell in layer {}", stored_layer.name),
+                    };
+                }
+            }
+        }
+        layers.push(Layer {
+            modified: false,
+            name: stored_layer.name,
+            background: stored_layer.background,
+            tiles,
+        });
+    }
+    if layers.is_empty() {
+        bail!("area has no layers");
+    }
+    if !has_bg2 {
+        bail!("area has no BG2 layer");
+    }
+
+    Ok(Area {
+        modified: false,
+        name: area_id.area.clone(),
+        theme: area_id.theme.clone(),
+        vanilla_map_id: stored.vanilla_map_id,
+        bg_color: stored.bg_color,
+        size: stored.size,
+        layers,
+    })
 }
 
-pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
+fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Result<()> {
     let mut color_bytes: Vec<Vec<[u8; 3]>> = vec![];
     let area = &state.areas[area_id];
+    let layer = &area.layers[layer_idx];
     for i in 0..state.palettes.len() {
-        let mut colors = state.palettes[i].colors;
-        colors[0] = area.bg_color;
-        let cb = colors
+        let cb = state.palettes[i]
+            .colors
             .iter()
             .map(|&[r, g, b]| [scale_color(r), scale_color(g), scale_color(b)])
             .collect();
         color_bytes.push(cb);
     }
 
-    let num_cols = area.size.1 as usize * 256;
-    let num_rows = area.size.0 as usize * 256;
-    let mut data: Vec<u8> = vec![0; num_rows * num_cols * 3];
-    let col_stride = 3;
+    let num_cols = area.size.0 as usize * 256;
+    let num_rows = area.size.1 as usize * 256;
+    let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
+    let col_stride = 4;
     let row_stride = num_cols * col_stride;
-    for sy in 0..area.size.1 as usize {
-        for sx in 0..area.size.0 as usize {
-            let screen = &area.screens[sy * area.size.0 as usize + sx];
-            let screen_addr = sy * 256 * row_stride + sx * 256 * col_stride;
-            for ty in 0..32 {
-                for tx in 0..32 {
-                    let palette_id = screen.palettes[ty][tx];
-                    let Some(&palette_idx) = state.palettes_id_idx_map.get(&palette_id) else {
-                        // TODO: draw some indicator of the broken tile (due to invalid palette reference)
-                        continue;
-                    };
-                    let tile_idx = screen.tiles[ty][tx];
-                    if tile_idx as usize >= state.palettes[palette_idx].tiles.len() {
-                        // TODO: draw some indicator of the broken tile (due to invalid palette reference)
-                        continue;
+    for (ty, row) in layer.tiles.iter().enumerate() {
+        for (tx, placement) in row.iter().enumerate() {
+            let Some(placement) = placement else {
+                continue;
+            };
+            let Some(&palette_idx) = state.palettes_id_idx_map.get(&placement.palette) else {
+                continue;
+            };
+            if placement.tile as usize >= state.palettes[palette_idx].tiles.len() {
+                continue;
+            }
+            let tile = placement
+                .flip
+                .apply_to_tile(state.palettes[palette_idx].tiles[placement.tile as usize]);
+            let cb = &color_bytes[palette_idx];
+            let mut tile_addr = ty * 8 * row_stride + tx * 8 * col_stride;
+            for py in 0..8 {
+                let mut addr = tile_addr;
+                for px in 0..8 {
+                    let color_idx = tile.pixels[py][px];
+                    if color_idx != 0 {
+                        data[addr..addr + 3].copy_from_slice(&cb[color_idx as usize]);
+                        data[addr + 3] = 255;
                     }
-                    let flip = screen.flips[ty][tx];
-                    let tile = state.palettes[palette_idx].tiles[tile_idx as usize];
-                    let tile = flip.apply_to_tile(tile);
-                    let cb = &color_bytes[palette_idx];
-                    let mut tile_addr = screen_addr + ty * 8 * row_stride + tx * 8 * col_stride;
-
-                    for py in 0..8 {
-                        let mut addr = tile_addr;
-                        for px in 0..8 {
-                            let color_idx = tile.pixels[py][px];
-                            let color = cb[color_idx as usize];
-                            data[addr..(addr + 3)].copy_from_slice(&color);
-                            addr += 3;
-                        }
-                        tile_addr += row_stride;
-                    }
+                    addr += 4;
                 }
+                tile_addr += row_stride;
             }
         }
     }
 
-    let area_dir = get_area_dir(state)?;
-    let area_png_filename = format!("{}.png", area.theme);
-    let area_png_path = area_dir.join(&area.name).join(area_png_filename);
+    let area_png_path = get_area_dir(state)?
+        .join(&area.name)
+        .join(&area.theme)
+        .join(format!("{}.png", layer.name));
+    fs::create_dir_all(area_png_path.parent().context("invalid PNG path")?)?;
     let file = File::create(&area_png_path).unwrap();
     let w = &mut BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, num_cols as u32, num_rows as u32);
-    encoder.set_color(png::ColorType::Rgb);
+    encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().unwrap();
     writer.write_image_data(&data).unwrap();
@@ -380,21 +489,128 @@ pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     Ok(())
 }
 
+pub fn delete_layer_png(state: &mut EditorState, area_id: &AreaId, name: &str) -> Result<()> {
+    let path = get_area_dir(state)?
+        .join(&area_id.area)
+        .join(&area_id.theme)
+        .join(format!("{name}.png"));
+    state.disable_watch_file_changes()?;
+    let result = fs::remove_file(path);
+    state.enable_watch_file_changes()?;
+    match result {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
+    for layer_idx in 0..state.areas[area_id].layers.len() {
+        save_layer_png(state, area_id, layer_idx)?;
+    }
+    for layer in &mut state.areas.get_mut(area_id).unwrap().layers {
+        layer.modified = false;
+    }
+    Ok(())
+}
+
 pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     let area_dir = get_area_dir(state)?;
     let area_json_filename = format!("{}.json", area_id.theme);
     let area_json_path = area_dir.join(&area_id.area).join(area_json_filename);
-    save_json(&area_json_path, &state.areas[area_id])?;
+    let area = &state.areas[area_id];
+    let mut stored_layers = Vec::with_capacity(area.layers.len());
+    for layer in &area.layers {
+        let mut screens = Vec::new();
+        let height = layer.tiles.len();
+        let width = layer.tiles.first().map_or(0, Vec::len);
+        for base_y in (0..height).step_by(32) {
+            for base_x in (0..width).step_by(32) {
+                let end_y = (base_y + 32).min(height);
+                let end_x = (base_x + 32).min(width);
+                let mut left = end_x;
+                let mut right = base_x;
+                let mut top = end_y;
+                let mut bottom = base_y;
+                for y in base_y..end_y {
+                    for x in base_x..end_x {
+                        if layer.tiles[y][x].is_some() {
+                            left = left.min(x);
+                            right = right.max(x);
+                            top = top.min(y);
+                            bottom = bottom.max(y);
+                        }
+                    }
+                }
+                if left == end_x {
+                    continue;
+                }
+
+                let mut palettes = Vec::new();
+                let mut tiles = Vec::new();
+                let mut flips = Vec::new();
+                for y in top..=bottom {
+                    let mut palette_row = Vec::new();
+                    let mut tile_row = Vec::new();
+                    let mut flip_row = Vec::new();
+                    for x in left..=right {
+                        let placement = layer.tiles[y][x];
+                        palette_row.push(placement.map(|placement| placement.palette));
+                        tile_row.push(placement.map(|placement| placement.tile));
+                        flip_row.push(placement.map(|placement| placement.flip));
+                    }
+                    palettes.push(palette_row);
+                    tiles.push(tile_row);
+                    flips.push(flip_row);
+                }
+                screens.push(StoredScreen {
+                    position: (left as u16, top as u16),
+                    size: ((right - left + 1) as u16, (bottom - top + 1) as u16),
+                    palettes,
+                    tiles,
+                    flips,
+                });
+            }
+        }
+        stored_layers.push(StoredLayer {
+            name: layer.name.clone(),
+            background: layer.background,
+            screens,
+        });
+    }
+    let stored = StoredArea {
+        vanilla_map_id: area.vanilla_map_id,
+        bg_color: area.bg_color,
+        size: area.size,
+        layers: stored_layers,
+    };
+    save_json(&area_json_path, &stored)?;
     Ok(())
 }
 
 pub fn save_area(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
-    if state.areas[area_id].modified {
+    let json_modified = state.areas[area_id].modified;
+    let mut modified_layers = Vec::new();
+    for (idx, layer) in state.areas[area_id].layers.iter().enumerate() {
+        if layer.modified {
+            modified_layers.push(idx);
+        }
+    }
+    if json_modified || !modified_layers.is_empty() {
         state.disable_watch_file_changes()?;
-        save_area_json(state, area_id)?;
-        save_area_png(state, area_id)?;
+        if json_modified {
+            save_area_json(state, area_id)?;
+        }
+        for layer_idx in modified_layers.iter().copied() {
+            save_layer_png(state, area_id, layer_idx)?;
+        }
         state.enable_watch_file_changes()?;
-        state.areas.get_mut(area_id).unwrap().modified = false;
+        let area = state.areas.get_mut(area_id).unwrap();
+        area.modified = false;
+        for layer_idx in modified_layers {
+            area.layers[layer_idx].modified = false;
+        }
     }
     Ok(())
 }
@@ -506,11 +722,11 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
             };
             let area =
                 load_area(state, &area_id).context(format!("Error loading {:?}", area_id))?;
-            for y in 0..area.size.1 as u16 * 32 {
-                for x in 0..area.size.0 as u16 * 32 {
-                    let pal = area.get_palette(x, y).unwrap();
-                    let tile_idx = area.get_tile(x, y).unwrap();
-                    out.insert((pal, tile_idx));
+            for layer in &area.layers {
+                for row in &layer.tiles {
+                    for placement in row.iter().flatten() {
+                        out.insert((placement.palette, placement.tile));
+                    }
                 }
             }
         }
@@ -547,16 +763,18 @@ pub fn remap_tiles(
                 theme: theme_name.clone(),
             };
             let mut area = load_area(state, &area_id)?;
-            for y in 0..area.size.1 as u16 * 32 {
-                for x in 0..area.size.0 as u16 * 32 {
-                    let pal = area.get_palette(x, y).unwrap();
-                    let tile_idx = area.get_tile(x, y).unwrap();
-                    if let Some(&(p, t, f)) = map.get(&(pal, tile_idx)) {
-                        let flip = area.get_flip(x, y)?;
-                        area.set_palette(x, y, p)?;
-                        area.set_tile(x, y, t)?;
-                        area.set_flip(x, y, f.apply_to_flip(flip))?;
-                        area.modified = true;
+            for layer in &mut area.layers {
+                for row in &mut layer.tiles {
+                    for placement in row.iter_mut().flatten() {
+                        if let Some(&(palette, tile, flip)) =
+                            map.get(&(placement.palette, placement.tile))
+                        {
+                            placement.palette = palette;
+                            placement.tile = tile;
+                            placement.flip = flip.apply_to_flip(placement.flip);
+                            layer.modified = true;
+                            area.modified = true;
+                        }
                     }
                 }
             }
@@ -667,6 +885,8 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.load_area(&area_id)?;
     state.switch_area(AreaPosition::Main, &area_id)?;
     state.switch_area(AreaPosition::Side, &area_id)?;
+    state.reset_layer_state(AreaPosition::Main);
+    state.reset_layer_state(AreaPosition::Side);
     state.palette_idx = 0;
     state.color_idx = None;
     state.tile_idx = None;

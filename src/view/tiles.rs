@@ -13,9 +13,7 @@ use log::warn;
 use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
-    state::{
-        ColorIdx, EditorState, Flip, Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool,
-    },
+    state::{ColorIdx, EditorState, Flip, Palette, Tile, TileBlock, TileCoord, Tool},
 };
 
 use super::modal_background_style;
@@ -29,7 +27,7 @@ struct TileGrid<'a> {
     pixel_size: f32,
     end_coords: Option<(TileCoord, TileCoord)>,
     tile_block: &'a TileBlock,
-    selected_gfx: &'a Vec<Vec<Tile>>,
+    selected_gfx: &'a Vec<Vec<Option<Tile>>>,
     thickness: f32,
     identify_color: bool,
     brush_graphics_only: bool,
@@ -135,13 +133,9 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
                                     self.pixel_size,
                                 );
                                 let dst_palette_id = self.palette.id;
-                                let mut palettes: Vec<Vec<PaletteId>> = vec![];
-                                let mut tiles: Vec<Vec<TileIdx>> = vec![];
-                                let mut flips: Vec<Vec<Flip>> = vec![];
+                                let mut placements = vec![];
                                 for y in 0..self.tile_block.size.1 {
-                                    let mut pal_row: Vec<PaletteId> = vec![];
-                                    let mut tile_row: Vec<TileIdx> = vec![];
-                                    let mut flip_row: Vec<Flip> = vec![];
+                                    let mut row = vec![];
                                     for x in 0..self.tile_block.size.0 {
                                         let x1 = dst_coords.x + x;
                                         let y1 = dst_coords.y + y;
@@ -150,19 +144,17 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
                                             warn!("Not moving tiles: some destination tiles are out-of-bounds.");
                                             return (canvas::event::Status::Ignored, None);
                                         }
-                                        pal_row.push(dst_palette_id);
-                                        tile_row.push(y1 * 16 + x1);
-                                        flip_row.push(Flip::None)
+                                        row.push(Some(crate::state::TilePlacement {
+                                            palette: dst_palette_id,
+                                            tile: y1 * 16 + x1,
+                                            flip: Flip::None,
+                                        }));
                                     }
-                                    palettes.push(pal_row);
-                                    tiles.push(tile_row);
-                                    flips.push(flip_row);
+                                    placements.push(row);
                                 }
                                 let dst_selection = TileBlock {
                                     size: (self.tile_block.size.0, self.tile_block.size.1),
-                                    palettes,
-                                    tiles,
-                                    flips,
+                                    placements,
                                 };
                                 return (
                                     canvas::event::Status::Captured,
@@ -324,6 +316,7 @@ impl<'a> canvas::Program<Message> for TileGrid<'a> {
             match self.tool {
                 Tool::Select => mouse::Interaction::default(),
                 Tool::Brush => mouse::Interaction::Crosshair,
+                Tool::Erase => mouse::Interaction::NotAllowed,
                 Tool::Move => mouse::Interaction::Move,
             }
         } else {

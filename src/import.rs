@@ -11,15 +11,17 @@ use std::{
 use crate::{
     persist::{load_area, load_project, save_area_json, save_area_png, save_project},
     state::{
-        AnimatedTileGroup, Area, AreaId, AreaName, ColorRGB, ColorValue, DynamicTileGrid,
-        DynamicTileGroup, DynamicTilePlacement, DynamicTileType, DynamicTileVariant, DynamicTiles,
-        EditorState, Flip, Palette, PaletteId, Screen, Tile, TileIdx, TilePixels,
+        AnimatedTileGroup, Area, AreaId, AreaName, Background, ColorRGB, ColorValue,
+        DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant, DynamicTiles,
+        EditorState, Flip, Layer, Palette, PaletteId, Tile, TileIdx, TilePixels, TilePlacement,
     },
     update::update_palette_order,
 };
 
 const ANIMATED_TILE_START: u16 = 0x1C0;
 const ANIMATED_TILE_COUNT: u16 = 32;
+const AREA_MAP_COUNT: u32 = 0x90;
+const MAP_COUNT: u32 = 0xA0;
 
 fn animated_tile_slot(gfx_char: u16) -> Option<u16> {
     gfx_char
@@ -176,7 +178,6 @@ struct Constants {
     tiles32_cnt: u32,
     map_high_addr: SnesAddr,
     map_low_addr: SnesAddr,
-    map_cnt: u32,
     custom_map_main_pal_set_addr: Option<SnesAddr>,
     map_aux_pal_set_addr: SnesAddr,
     special_map_pal_set_addr: SnesAddr,
@@ -212,7 +213,6 @@ impl Constants {
             tiles32_cnt: 8828,
             map_high_addr: SnesAddr(0x02F6B1),
             map_low_addr: SnesAddr(0x02F891),
-            map_cnt: 0x90,
             custom_map_main_pal_set_addr: None,
             map_aux_pal_set_addr: SnesAddr(0x00FD1C),
             special_map_pal_set_addr: SnesAddr(0x02E595),
@@ -248,7 +248,6 @@ impl Constants {
             tiles32_cnt: 8864,
             map_high_addr: SnesAddr(0x02F94D),
             map_low_addr: SnesAddr(0x02FB2D),
-            map_cnt: 0x90,
             custom_map_main_pal_set_addr: None,
             map_aux_pal_set_addr: SnesAddr(0x00FD1C),
             special_map_pal_set_addr: SnesAddr(0x02E831),
@@ -688,7 +687,7 @@ impl<'a> Importer<'a> {
 
     fn load_map_tiles(&mut self) -> Result<()> {
         let rom = &self.rom;
-        for i in 0..self.constants.map_cnt {
+        for i in 0..MAP_COUNT {
             let high_addr = SnesAddr(rom.read_u24((self.constants.map_high_addr + i * 3).into())?);
             let high_data = decompress(rom, high_addr.into(), true)?;
 
@@ -721,7 +720,7 @@ impl<'a> Importer<'a> {
     }
 
     fn load_map_parents(&mut self) -> Result<()> {
-        let mut parents: Vec<MapIdx> = (0..self.constants.map_cnt as MapIdx).collect();
+        let mut parents: Vec<MapIdx> = (0..MAP_COUNT as MapIdx).collect();
 
         // Large areas:
         for i in [0, 3, 5, 24, 27, 30, 48, 53] {
@@ -735,14 +734,14 @@ impl<'a> Importer<'a> {
         parents[130] = 129;
         parents[137] = 129;
         parents[138] = 129;
-        // parents[148] = 128;
-        // parents[149] = 3;
-        // parents[150] = 91;
-        // parents[151] = 0;
-        // parents[156] = 67;
-        // parents[157] = 0;
-        // parents[158] = 0;
-        // parents[159] = 44;
+        parents[148] = 128;
+        parents[149] = 3;
+        parents[150] = 91;
+        parents[151] = 0;
+        parents[156] = 67;
+        parents[157] = 0;
+        parents[158] = 0;
+        parents[159] = 44;
 
         self.map_parents = parents;
         Ok(())
@@ -750,7 +749,7 @@ impl<'a> Importer<'a> {
 
     fn load_map_palettes(&mut self) -> Result<()> {
         let rom = &self.rom;
-        for i in 0..self.constants.map_cnt as usize {
+        for i in 0..AREA_MAP_COUNT as usize {
             let parent = self.map_parents[i];
             let main = if let Some(main_pal_addr) = self.constants.custom_map_main_pal_set_addr {
                 rom.read_u8((main_pal_addr + parent as u32).into())?
@@ -823,7 +822,7 @@ impl<'a> Importer<'a> {
         let local_gfx_set_addr = self.constants.local_gfx_set_addr;
         let map_gfx_set_addr = self.constants.map_gfx_set_addr;
         let special_gfx_set_addr = self.constants.special_gfx_set_addr;
-        for i in 0..self.constants.map_cnt as usize {
+        for i in 0..AREA_MAP_COUNT as usize {
             let parent = self.map_parents[i];
             let global_idx = match parent {
                 0x40..0x80 => 0x21, // Dark World
@@ -955,19 +954,17 @@ impl<'a> Importer<'a> {
                 vanilla_map_id: Some(parent as u8),
                 bg_color,
                 size: (size.0 * 2, size.1 * 2),
-                screens: vec![],
+                layers: vec![Layer {
+                    modified: true,
+                    name: "Main".to_string(),
+                    background: Background::Bg2,
+                    tiles: vec![
+                        vec![Some(TilePlacement::default()); size.0 as usize * 64];
+                        size.1 as usize * 64
+                    ],
+                }],
             };
             self.state.area_names.push(area.name.clone());
-            for y in 0..size.1 * 2 {
-                for x in 0..size.0 * 2 {
-                    area.screens.push(Screen {
-                        position: (x, y),
-                        palettes: [[0; 32]; 32],
-                        tiles: [[0; 32]; 32],
-                        flips: [[Flip::None; 32]; 32],
-                    });
-                }
-            }
             for my in 0..size.1 as usize {
                 for mx in 0..size.0 as usize {
                     let map_idx = parent + my * 8 + mx;
@@ -1140,6 +1137,51 @@ impl<'a> Importer<'a> {
                     }
                 }
             }
+            let overlays: &[(usize, &str)] = match parent {
+                0x00 => &[(0x9D, "Woods Fog"), (0x9E, "Woods Clear")],
+                0x03 | 0x05 | 0x07 => &[(0x95, "Mountain Overlay")],
+                0x40 => &[(0x9D, "Woods Fog")],
+                0x43 | 0x45 | 0x47 => &[(0x9C, "Dark Mountain Overlay")],
+                0x5B => &[(0x96, "Pyramid Background")],
+                0x80 => &[(0x97, "Grove Fog"), (0x94, "Bridge Shadow")],
+                _ => &[],
+            };
+            for &(map_id, name) in overlays {
+                let map16 = self.build_map16(map_id);
+                let overlay = self.build_dynamic_grid(parent, &map16, false)?;
+                let width = size.0 as usize * 64;
+                let height = size.1 as usize * 64;
+                let mut tiles = vec![vec![None; width]; height];
+                for y in 0..height {
+                    for x in 0..width {
+                        let Some(placement) = overlay.tiles[y % 64][x % 64] else {
+                            continue;
+                        };
+                        let palette_idx = self.state.palettes_id_idx_map[&placement.palette];
+                        let tile = self.state.palettes[palette_idx].tiles[placement.tile as usize];
+                        let mut visible = false;
+                        for row in tile.pixels {
+                            for color in row {
+                                if color != 0 {
+                                    visible = true;
+                                }
+                            }
+                        }
+                        if visible {
+                            tiles[y][x] = Some(placement);
+                        }
+                    }
+                }
+                area.layers.insert(
+                    area.layers.len() - 1,
+                    Layer {
+                        modified: true,
+                        name: name.to_string(),
+                        background: Background::Bg1,
+                        tiles,
+                    },
+                );
+            }
             self.state
                 .set_area(crate::state::AreaPosition::Main, area)?;
             save_area_json(self.state, &self.state.main_area_id.clone())?;
@@ -1216,7 +1258,7 @@ impl<'a> Importer<'a> {
                     {
                         for flip in [Flip::None, Flip::Horizontal, Flip::Vertical, Flip::Both] {
                             if strip_tile(flip.apply_to_tile(*candidate)) == tile {
-                                placement = Some(DynamicTilePlacement {
+                                placement = Some(TilePlacement {
                                     palette: palette_id,
                                     tile: idx as TileIdx,
                                     flip,
@@ -1233,7 +1275,7 @@ impl<'a> Importer<'a> {
                         None => {
                             let tile_idx = self.state.palettes[palette_idx].tiles.len() as TileIdx;
                             self.state.palettes[palette_idx].tiles.push(tile);
-                            DynamicTilePlacement {
+                            TilePlacement {
                                 palette: palette_id,
                                 tile: tile_idx,
                                 flip: Flip::None,

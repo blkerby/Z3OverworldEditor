@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use iced::Point;
 
 use crate::state::{
-    AnimatedTileGroup, AreaId, AreaPosition, CollisionType, ColorIdx, ColorRGB, ColorValue,
-    DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus, Palette, PaletteId, PaletteIdx,
-    PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
+    AnimatedTileGroup, AreaId, AreaPosition, Background, CollisionType, ColorIdx, ColorRGB,
+    ColorValue, DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus, Layer, Palette,
+    PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -148,7 +148,7 @@ pub enum Message {
     TilesetBrush {
         palette_id: PaletteId,
         coords: Point<TileCoord>,
-        selected_gfx: Vec<Vec<Tile>>,
+        selected_gfx: Vec<Vec<Option<Tile>>>,
         tile_block: Option<TileBlock>,
     },
     SelectPixel(PixelTarget, PixelCoord, PixelCoord),
@@ -183,6 +183,39 @@ pub enum Message {
     DeleteAreaDialogue,
     DeleteArea(String),
     SelectTheme(AreaPosition, String),
+    ToggleLayerDrawer,
+    SelectLayer(AreaPosition, usize),
+    ToggleLayerVisibility(usize),
+    AddLayer(AreaPosition),
+    DeleteLayer {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+    },
+    RestoreLayer {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+        layer: Layer,
+    },
+    MoveLayer {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+        new_idx: usize,
+    },
+    RenameLayer {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+        name: String,
+    },
+    SetLayerBackground {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+        background: Background,
+    },
     AddThemeDialogue,
     SetAddThemeName(String),
     AddTheme(String),
@@ -202,9 +235,17 @@ pub enum Message {
     AreaBrush {
         position: AreaPosition,
         area_id: AreaId,
+        layer_idx: usize,
         coords: Point<TileCoord>,
         selection: TileBlock,
         palette_only: bool,
+    },
+    AreaErase {
+        position: AreaPosition,
+        area_id: AreaId,
+        layer_idx: usize,
+        coords: Point<TileCoord>,
+        size: TileCoord,
     },
     OpenTile {
         palette_id: PaletteId,

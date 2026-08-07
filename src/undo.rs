@@ -1,6 +1,6 @@
 use crate::{
     message::Message,
-    state::{EditorState, Flip, PaletteId, Tile, TileBlock, TileCoord, TileIdx},
+    state::{EditorState, Tile, TileBlock, TileCoord},
 };
 
 use anyhow::{Context, Result};
@@ -33,8 +33,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::CloseDynamicTiles => UndoAction::None,
         Message::SelectDynamicTileType(_) => UndoAction::None,
         Message::SelectDynamicTileFrame { .. } => UndoAction::None,
-        Message::AddDynamicTileVariant
-        | Message::DeleteDynamicTileVariant(_) => {
+        Message::AddDynamicTileVariant | Message::DeleteDynamicTileVariant(_) => {
             let kind = state.dynamic_tile_type;
             let variants = state
                 .dynamic_tiles
@@ -296,20 +295,20 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 .palettes_id_idx_map
                 .get(&palette_id)
                 .context("undefined palette")?;
-            let mut s: Vec<Vec<Tile>> = vec![];
+            let mut s: Vec<Vec<Option<Tile>>> = vec![];
             for y in 0..selected_gfx.len() {
-                let mut row: Vec<Tile> = vec![];
+                let mut row: Vec<Option<Tile>> = vec![];
                 for x in 0..selected_gfx[0].len() {
                     let y1 = y + y0 as usize;
                     let x1 = x + x0 as usize;
                     let i = y1 * 16 + x1;
                     if x1 < 16 && i < state.palettes[pal_idx].tiles.len() {
-                        row.push(state.palettes[pal_idx].tiles[i]);
+                        row.push(Some(state.palettes[pal_idx].tiles[i]));
                     }
                 }
                 s.push(row);
             }
-            
+
             UndoAction::Ok(Message::TilesetBrush {
                 palette_id,
                 coords: Point { x: x0, y: y0 },
@@ -333,10 +332,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 crate::state::PixelTarget::Regular(tile) => {
                     pal.tiles[tile as usize].pixels[coords.y as usize][coords.x as usize]
                 }
-                crate::state::PixelTarget::Animated {
-                    tile_idx,
-                    frame,
-                } => {
+                crate::state::PixelTarget::Animated { tile_idx, frame } => {
                     let base_tile = tile_idx / 16 * 16;
                     let tile = (tile_idx % 16) as usize;
                     pal.animated_tile_groups
@@ -368,16 +364,76 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::EditAreaBGRed(_) => UndoAction::None,
         Message::EditAreaBGGreen(_) => UndoAction::None,
         Message::EditAreaBGBlue(_) => UndoAction::None,
-        Message::EditAreaBGColor {
-            area_id,
-            color: _,
-        } => UndoAction::Ok(Message::EditAreaBGColor {
-            area_id: area_id.clone(),
-            color: state.areas[area_id].bg_color,
-        }),
+        Message::EditAreaBGColor { area_id, color: _ } => {
+            UndoAction::Ok(Message::EditAreaBGColor {
+                area_id: area_id.clone(),
+                color: state.areas[area_id].bg_color,
+            })
+        }
         Message::DeleteAreaDialogue => UndoAction::None,
         Message::DeleteArea(_) => UndoAction::Irreversible,
         Message::SelectTheme(_, _) => UndoAction::None,
+        Message::ToggleLayerDrawer
+        | Message::SelectLayer(_, _)
+        | Message::ToggleLayerVisibility(_) => UndoAction::None,
+        &Message::AddLayer(position) => UndoAction::Ok(Message::DeleteLayer {
+            position,
+            area_id: state.area_id(position).clone(),
+            layer_idx: state.selected_layer_idx(position) + 1,
+        }),
+        Message::DeleteLayer {
+            position,
+            area_id,
+            layer_idx,
+        } => UndoAction::Ok(Message::RestoreLayer {
+            position: *position,
+            area_id: area_id.clone(),
+            layer_idx: *layer_idx,
+            layer: state.areas[area_id].layers[*layer_idx].clone(),
+        }),
+        Message::RestoreLayer {
+            position,
+            area_id,
+            layer_idx,
+            ..
+        } => UndoAction::Ok(Message::DeleteLayer {
+            position: *position,
+            area_id: area_id.clone(),
+            layer_idx: *layer_idx,
+        }),
+        Message::MoveLayer {
+            position,
+            area_id,
+            layer_idx,
+            new_idx,
+        } => UndoAction::Ok(Message::MoveLayer {
+            position: *position,
+            area_id: area_id.clone(),
+            layer_idx: *new_idx,
+            new_idx: *layer_idx,
+        }),
+        Message::RenameLayer {
+            position,
+            area_id,
+            layer_idx,
+            ..
+        } => UndoAction::Ok(Message::RenameLayer {
+            position: *position,
+            area_id: area_id.clone(),
+            layer_idx: *layer_idx,
+            name: state.areas[area_id].layers[*layer_idx].name.clone(),
+        }),
+        Message::SetLayerBackground {
+            position,
+            area_id,
+            layer_idx,
+            ..
+        } => UndoAction::Ok(Message::SetLayerBackground {
+            position: *position,
+            area_id: area_id.clone(),
+            layer_idx: *layer_idx,
+            background: state.areas[area_id].layers[*layer_idx].background,
+        }),
         Message::AddThemeDialogue => UndoAction::None,
         Message::SetAddThemeName(_) => UndoAction::None,
         Message::AddTheme(theme_name) => UndoAction::Ok(Message::DeleteTheme(theme_name.clone())),
@@ -397,47 +453,74 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::AreaBrush {
             position,
             area_id,
+            layer_idx,
             coords,
             selection,
-            palette_only,
+            ..
         } => {
-            let mut palettes: Vec<Vec<PaletteId>> = vec![];
-            let mut tiles: Vec<Vec<TileIdx>> = vec![];
-            let mut flips: Vec<Vec<Flip>> = vec![];
+            let mut placements = vec![];
             for y in 0..selection.size.1 {
-                let mut palette_row: Vec<PaletteId> = vec![];
-                let mut tile_row: Vec<TileIdx> = vec![];
-                let mut flip_row: Vec<Flip> = vec![];
+                let mut row = vec![];
                 for x in 0..selection.size.0 {
-                    if let Ok(p) = state.areas[area_id].get_palette(coords.x + x, coords.y + y) {
-                        palette_row.push(p);
-                    }
-                    if let Ok(t) = state.areas[area_id].get_tile(coords.x + x, coords.y + y) {
-                        tile_row.push(t);
-                    }
-                    if let Ok(f) = state.areas[area_id].get_flip(coords.x + x, coords.y + y) {
-                        flip_row.push(f);
+                    match state.areas[area_id].get_layer_placement(
+                        *layer_idx,
+                        coords.x + x,
+                        coords.y + y,
+                    ) {
+                        Ok(placement) => row.push(placement),
+                        Err(_) => break,
                     }
                 }
-                if palette_row.is_empty() {
+                if row.is_empty() {
                     break;
                 }
-                palettes.push(palette_row);
-                tiles.push(tile_row);
-                flips.push(flip_row);
+                placements.push(row);
             }
             let new_selection = TileBlock {
-                size: (palettes[0].len() as TileCoord, palettes.len() as TileCoord),
-                palettes,
-                tiles,
-                flips,
+                size: (
+                    placements[0].len() as TileCoord,
+                    placements.len() as TileCoord,
+                ),
+                placements,
             };
             UndoAction::Ok(Message::AreaBrush {
                 position: *position,
                 area_id: area_id.clone(),
+                layer_idx: *layer_idx,
                 coords: *coords,
                 selection: new_selection,
-                palette_only: *palette_only,
+                palette_only: false,
+            })
+        }
+        Message::AreaErase {
+            position,
+            area_id,
+            layer_idx,
+            coords,
+            size,
+        } => {
+            let mut placements = vec![];
+            for y in 0..*size {
+                let mut row = vec![];
+                for x in 0..*size {
+                    row.push(state.areas[area_id].get_layer_placement(
+                        *layer_idx,
+                        coords.x + x,
+                        coords.y + y,
+                    )?);
+                }
+                placements.push(row);
+            }
+            UndoAction::Ok(Message::AreaBrush {
+                position: *position,
+                area_id: area_id.clone(),
+                layer_idx: *layer_idx,
+                coords: *coords,
+                selection: TileBlock {
+                    size: (*size, *size),
+                    placements,
+                },
+                palette_only: false,
             })
         }
         Message::OpenTile { .. } => UndoAction::None,
