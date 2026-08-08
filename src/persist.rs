@@ -468,7 +468,8 @@ fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Re
 
     let num_cols = area.size.0 as usize * 256;
     let num_rows = area.size.1 as usize * 256;
-    let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
+    let [r, g, b] = area.bg_color.map(scale_color);
+    let mut data = [r, g, b, 255].repeat(num_rows * num_cols);
     let col_stride = 4;
     let row_stride = num_cols * col_stride;
     for (ty, row) in layer.tiles.iter().enumerate() {
