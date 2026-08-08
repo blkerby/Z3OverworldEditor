@@ -313,6 +313,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         let num_cols = self.area.size.0 as usize * 256 + 2;
         let num_rows = self.area.size.1 as usize * 256 + 2;
         let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
+        let mut bg1_data = (self.area.bg_layering == BackgroundLayering::HalfAdd)
+            .then(|| vec![0; data.len()]);
         let col_stride = 4;
         let row_stride = num_cols * col_stride;
         let bg = self.area.bg_color.map(scale_color);
@@ -331,6 +333,10 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
             if !visible {
                 continue;
             }
+            let layer_data = match (&mut bg1_data, layer.background) {
+                (Some(bg1_data), Background::Bg1) => bg1_data,
+                _ => &mut data,
+            };
             for (ty, row) in layer.tiles.iter().enumerate() {
                 for (tx, placement) in row.iter().enumerate() {
                     let Some(placement) = placement else {
@@ -386,12 +392,23 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             } else if identify_color {
                                 color = pink_highlight;
                             }
-                            data[addr..(addr + 3)].copy_from_slice(&color);
-                            data[addr + 3] = 255;
+                            layer_data[addr..(addr + 3)].copy_from_slice(&color);
+                            layer_data[addr + 3] = 255;
                             addr += 4;
                         }
                         tile_addr += row_stride;
                     }
+                }
+            }
+        }
+        if let Some(bg1_data) = bg1_data {
+            for addr in (0..data.len()).step_by(4) {
+                if bg1_data[addr + 3] == 0 {
+                    continue;
+                }
+                for channel in 0..3 {
+                    data[addr + channel] =
+                        ((data[addr + channel] as u16 + bg1_data[addr + channel] as u16) / 2) as u8;
                 }
             }
         }
