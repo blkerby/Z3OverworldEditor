@@ -16,12 +16,29 @@ use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
     state::{
-        Area, AreaId, AreaPosition, Background, ColorIdx, EditorState, Focus, Palette, PaletteId,
-        Tile, TileBlock, TileCoord, TileIdx, Tool,
+        Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx, EditorState, Focus,
+        Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool,
     },
 };
 
 use super::modal_background_style;
+
+#[derive(Clone, Copy, PartialEq)]
+struct CameraFollow(f32, &'static str);
+
+impl std::fmt::Display for CameraFollow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.1)
+    }
+}
+
+const CAMERA_FOLLOW_OPTIONS: [CameraFollow; 5] = [
+    CameraFollow(1.5, "150%"),
+    CameraFollow(1.0, "100%"),
+    CameraFollow(0.5, "50%"),
+    CameraFollow(0.25, "25%"),
+    CameraFollow(0.0, "0%"),
+];
 
 // We use two separate canvases: one for drawing the tile raster and one for the tile selection.
 // This is to work around a limitation in Iced's rendering pipeline that does not allow drawing
@@ -941,6 +958,8 @@ pub fn add_area_view(name: &str, size: (u8, u8)) -> Element<'_, Message> {
 
 pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Message> {
     let old_name = state.main_area().name.clone();
+    let area_id = state.main_area_id.clone();
+    let area = state.main_area();
     let rgb_width = 80;
     let edit_area_msg = Message::EditArea {
         old_name: old_name.clone(),
@@ -962,7 +981,7 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
             row![
                 text("Red"),
                 number_input(
-                    &state.main_area().bg_color[0],
+                    &area.bg_color[0],
                     0..=31,
                     Message::EditAreaBGRed
                 )
@@ -970,7 +989,7 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
                 iced::widget::Space::with_width(10),
                 text("Green"),
                 number_input(
-                    &state.main_area().bg_color[1],
+                    &area.bg_color[1],
                     0..=31,
                     Message::EditAreaBGGreen
                 )
@@ -978,7 +997,7 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
                 iced::widget::Space::with_width(10),
                 text("Blue"),
                 number_input(
-                    &state.main_area().bg_color[2],
+                    &area.bg_color[2],
                     0..=31,
                     Message::EditAreaBGBlue
                 )
@@ -986,6 +1005,76 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
             ]
             .spacing(5)
             .align_y(iced::alignment::Vertical::Center),
+            row![
+                text("Background layering:").width(220),
+                pick_list(BackgroundLayering::ALL, Some(area.bg_layering), {
+                    let area_id = area_id.clone();
+                    move |value| Message::EditAreaBGLayering {
+                        area_id: area_id.clone(),
+                        value,
+                    }
+                }),
+            ]
+            .spacing(10)
+            .align_y(Vertical::Center),
+            row![
+                text("Background X camera follow:").width(220),
+                pick_list(
+                    CAMERA_FOLLOW_OPTIONS,
+                    CAMERA_FOLLOW_OPTIONS
+                        .iter()
+                        .find(|option| option.0 == area.bg_camera_follow_x),
+                    {
+                        let area_id = area_id.clone();
+                        move |value| Message::EditAreaBGCameraFollowX {
+                            area_id: area_id.clone(),
+                            value: value.0,
+                        }
+                    },
+                ),
+            ]
+            .spacing(10)
+            .align_y(Vertical::Center),
+            row![
+                text("Background X camera drift:").width(220),
+                number_input(
+                    &area.bg_camera_drift_x,
+                    -512.0..=512.0,
+                    Message::EditAreaBGCameraDriftX,
+                )
+                .width(100),
+            ]
+            .spacing(10)
+            .align_y(Vertical::Center),
+            row![
+                text("Background Y camera follow:").width(220),
+                pick_list(
+                    CAMERA_FOLLOW_OPTIONS,
+                    CAMERA_FOLLOW_OPTIONS
+                        .iter()
+                        .find(|option| option.0 == area.bg_camera_follow_y),
+                    {
+                        let area_id = area_id.clone();
+                        move |value| Message::EditAreaBGCameraFollowY {
+                            area_id: area_id.clone(),
+                            value: value.0,
+                        }
+                    },
+                ),
+            ]
+            .spacing(10)
+            .align_y(Vertical::Center),
+            row![
+                text("Background Y camera drift:").width(220),
+                number_input(
+                    &area.bg_camera_drift_y,
+                    -512.0..=512.0,
+                    Message::EditAreaBGCameraDriftY,
+                )
+                .width(100),
+            ]
+            .spacing(10)
+            .align_y(Vertical::Center),
             row![
                 button(text("Edit area")).on_press(edit_area_msg.clone()),
                 Space::with_width(Length::Fill),

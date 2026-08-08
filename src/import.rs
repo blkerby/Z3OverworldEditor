@@ -11,9 +11,10 @@ use std::{
 use crate::{
     persist::{load_area, load_project, save_area_json, save_area_png, save_project},
     state::{
-        AnimatedTileGroup, Area, AreaId, AreaName, Background, ColorRGB, ColorValue,
-        DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant, DynamicTiles,
-        EditorState, Flip, Layer, Palette, PaletteId, Tile, TileIdx, TilePixels, TilePlacement,
+        AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering, ColorRGB,
+        ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant,
+        DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile, TileIdx, TilePixels,
+        TilePlacement,
     },
     update::update_palette_order,
 };
@@ -947,12 +948,39 @@ impl<'a> Importer<'a> {
                     _ => bail!("unexpected world_idx: {}", world_idx),
                 },
             };
+            let overlays: &[(usize, &str)] = match parent {
+                0x00 => &[(0x9D, "Woods Fog"), (0x9E, "Woods Clear")],
+                0x03 | 0x05 | 0x07 => &[(0x95, "Mountain Overlay")],
+                0x40 => &[(0x9D, "Woods Fog")],
+                0x43 | 0x45 | 0x47 => &[(0x9C, "Dark Mountain Overlay")],
+                0x5B => &[(0x96, "Pyramid Background")],
+                0x80 => &[(0x97, "Grove Fog"), (0x94, "Bridge Shadow")],
+                _ => &[],
+            };
+            let (
+                bg_layering,
+                bg_camera_follow_x,
+                bg_camera_drift_x,
+                bg_camera_follow_y,
+                bg_camera_drift_y,
+            ) = match parent {
+                0x00 | 0x40 | 0x80 => (BackgroundLayering::HalfAdd, 0.0, 0.125, 0.0, 0.125),
+                0x03 | 0x05 | 0x07 => (BackgroundLayering::Backdrop, 0.25, 0.0, 0.5, 0.0),
+                0x43 | 0x45 => (BackgroundLayering::Backdrop, 1.0, 0.0, 1.5, -0.125),
+                0x47 | 0x5B => (BackgroundLayering::Backdrop, 0.5, 0.0, 0.5, 0.0),
+                _ => (BackgroundLayering::None, 1.0, 0.0, 1.0, 0.0),
+            };
             let mut area: Area = Area {
                 modified: false,
                 name: area_name,
                 theme: self.theme.clone(),
                 vanilla_map_id: Some(parent as u8),
                 bg_color,
+                bg_layering,
+                bg_camera_follow_x,
+                bg_camera_drift_x,
+                bg_camera_follow_y,
+                bg_camera_drift_y,
                 size: (size.0 * 2, size.1 * 2),
                 layers: vec![Layer {
                     modified: true,
@@ -1137,15 +1165,6 @@ impl<'a> Importer<'a> {
                     }
                 }
             }
-            let overlays: &[(usize, &str)] = match parent {
-                0x00 => &[(0x9D, "Woods Fog"), (0x9E, "Woods Clear")],
-                0x03 | 0x05 | 0x07 => &[(0x95, "Mountain Overlay")],
-                0x40 => &[(0x9D, "Woods Fog")],
-                0x43 | 0x45 | 0x47 => &[(0x9C, "Dark Mountain Overlay")],
-                0x5B => &[(0x96, "Pyramid Background")],
-                0x80 => &[(0x97, "Grove Fog"), (0x94, "Bridge Shadow")],
-                _ => &[],
-            };
             for &(map_id, name) in overlays {
                 let map16 = self.build_map16(map_id);
                 let overlay = self.build_dynamic_grid(parent, &map16, false)?;

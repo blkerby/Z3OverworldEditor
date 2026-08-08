@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use iced::Point;
 
 use crate::state::{
-    AnimatedTileGroup, AreaId, AreaPosition, Background, CollisionType, ColorIdx, ColorRGB,
-    ColorValue, DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus, Layer, Palette,
-    PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord, TileIdx,
+    AnimatedTileGroup, AreaId, AreaPosition, Background, BackgroundLayering, CollisionType,
+    ColorIdx, ColorRGB, ColorValue, DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus,
+    Layer, Palette, PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord,
+    TileIdx,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -179,6 +180,28 @@ pub enum Message {
     EditAreaBGColor {
         area_id: AreaId,
         color: ColorRGB,
+    },
+    EditAreaBGLayering {
+        area_id: AreaId,
+        value: BackgroundLayering,
+    },
+    EditAreaBGCameraFollowX {
+        area_id: AreaId,
+        value: f32,
+    },
+    EditAreaBGCameraDriftX(f32),
+    SetAreaBGCameraDriftX {
+        area_id: AreaId,
+        value: f32,
+    },
+    EditAreaBGCameraFollowY {
+        area_id: AreaId,
+        value: f32,
+    },
+    EditAreaBGCameraDriftY(f32),
+    SetAreaBGCameraDriftY {
+        area_id: AreaId,
+        value: f32,
     },
     DeleteAreaDialogue,
     DeleteArea(String),

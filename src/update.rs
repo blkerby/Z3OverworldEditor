@@ -14,10 +14,10 @@ use crate::{
         save_area_png, save_palettes, scan_used_tiles,
     },
     state::{
-        is_valid_layer_name, Area, AreaId, AreaPosition, Background, ColorIdx, ColorRGB, Dialogue,
-        DynamicTileGrid, DynamicTileGroup, DynamicTileTarget, DynamicTileType, DynamicTileVariant,
-        EditorState, Flip, Focus, Layer, PaletteId, PixelTarget, SidePanelView, Tile, TileBlock,
-        TileIdx, TilePlacement, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
+        is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx,
+        ColorRGB, Dialogue, DynamicTileGrid, DynamicTileGroup, DynamicTileTarget, DynamicTileType,
+        DynamicTileVariant, EditorState, Flip, Focus, Layer, PaletteId, PixelTarget, SidePanelView,
+        Tile, TileBlock, TileIdx, TilePlacement, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -1459,6 +1459,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         size: *size,
                         vanilla_map_id: state.areas[&state.main_area_id].vanilla_map_id,
                         bg_color: state.areas[&state.main_area_id].bg_color,
+                        bg_layering: BackgroundLayering::None,
+                        bg_camera_follow_x: 1.0,
+                        bg_camera_drift_x: 0.0,
+                        bg_camera_follow_y: 1.0,
+                        bg_camera_drift_y: 0.0,
                         layers: vec![Layer {
                             modified: true,
                             name: "Main".to_string(),
@@ -1551,6 +1556,44 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         &Message::EditAreaBGColor { ref area_id, color } => {
             state.switch_area(AreaPosition::Main, area_id)?;
             state.main_area_mut().bg_color = color;
+            state.main_area_mut().modified = true;
+        }
+        Message::EditAreaBGLayering { area_id, value } => {
+            let area = state.areas.get_mut(area_id).context("area not loaded")?;
+            area.bg_layering = *value;
+            area.modified = true;
+        }
+        Message::EditAreaBGCameraFollowX { area_id, value } => {
+            let area = state.areas.get_mut(area_id).context("area not loaded")?;
+            area.bg_camera_follow_x = *value;
+            area.modified = true;
+        }
+        &Message::EditAreaBGCameraDriftX(value) => {
+            return Ok(Some(Task::done(Message::SetAreaBGCameraDriftX {
+                area_id: state.main_area_id.clone(),
+                value,
+            })));
+        }
+        Message::SetAreaBGCameraDriftX { area_id, value } => {
+            let area = state.areas.get_mut(area_id).context("area not loaded")?;
+            area.bg_camera_drift_x = *value;
+            area.modified = true;
+        }
+        Message::EditAreaBGCameraFollowY { area_id, value } => {
+            let area = state.areas.get_mut(area_id).context("area not loaded")?;
+            area.bg_camera_follow_y = *value;
+            area.modified = true;
+        }
+        &Message::EditAreaBGCameraDriftY(value) => {
+            return Ok(Some(Task::done(Message::SetAreaBGCameraDriftY {
+                area_id: state.main_area_id.clone(),
+                value,
+            })));
+        }
+        Message::SetAreaBGCameraDriftY { area_id, value } => {
+            let area = state.areas.get_mut(area_id).context("area not loaded")?;
+            area.bg_camera_drift_y = *value;
+            area.modified = true;
         }
         Message::DeleteAreaDialogue => {
             state.dialogue = Some(Dialogue::DeleteArea);

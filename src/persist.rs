@@ -17,8 +17,8 @@ use crate::{
     helpers::scale_color,
     state::{
         ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty,
-        is_valid_layer_name, Area, AreaId, AreaPosition, Background, DynamicTiles, EditorState,
-        Flip, Layer, Palette, PaletteId, TileIdx, TilePlacement,
+        is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering,
+        DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, TileIdx, TilePlacement,
     },
     update::update_palette_order,
 };
@@ -306,8 +306,22 @@ pub fn load_area_list(state: &mut EditorState) -> Result<()> {
 struct StoredArea {
     vanilla_map_id: Option<u8>,
     bg_color: [u8; 3],
+    #[serde(default)]
+    bg_layering: BackgroundLayering,
+    #[serde(default = "default_bg_camera_follow")]
+    bg_camera_follow_x: f32,
+    #[serde(default)]
+    bg_camera_drift_x: f32,
+    #[serde(default = "default_bg_camera_follow")]
+    bg_camera_follow_y: f32,
+    #[serde(default)]
+    bg_camera_drift_y: f32,
     size: (u8, u8),
     layers: Vec<StoredLayer>,
+}
+
+fn default_bg_camera_follow() -> f32 {
+    1.0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -335,6 +349,16 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
     let height = stored.size.1 as usize * 32;
     if width == 0 || height == 0 {
         bail!("area size must be nonzero");
+    }
+    for follow in [stored.bg_camera_follow_x, stored.bg_camera_follow_y] {
+        if ![0.0, 0.25, 0.5, 1.0, 1.5].contains(&follow) {
+            bail!("invalid background camera follow: {}", follow);
+        }
+    }
+    for drift in [stored.bg_camera_drift_x, stored.bg_camera_drift_y] {
+        if !(-512.0..=512.0).contains(&drift) {
+            bail!("invalid background camera drift: {}", drift);
+        }
     }
     let mut names = HashSet::new();
     let mut has_bg2 = false;
@@ -419,6 +443,11 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
         theme: area_id.theme.clone(),
         vanilla_map_id: stored.vanilla_map_id,
         bg_color: stored.bg_color,
+        bg_layering: stored.bg_layering,
+        bg_camera_follow_x: stored.bg_camera_follow_x,
+        bg_camera_drift_x: stored.bg_camera_drift_x,
+        bg_camera_follow_y: stored.bg_camera_follow_y,
+        bg_camera_drift_y: stored.bg_camera_drift_y,
         size: stored.size,
         layers,
     })
@@ -582,6 +611,11 @@ pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     let stored = StoredArea {
         vanilla_map_id: area.vanilla_map_id,
         bg_color: area.bg_color,
+        bg_layering: area.bg_layering,
+        bg_camera_follow_x: area.bg_camera_follow_x,
+        bg_camera_drift_x: area.bg_camera_drift_x,
+        bg_camera_follow_y: area.bg_camera_follow_y,
+        bg_camera_drift_y: area.bg_camera_drift_y,
         size: area.size,
         layers: stored_layers,
     };

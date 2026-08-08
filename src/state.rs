@@ -380,6 +380,29 @@ impl std::fmt::Display for Background {
     }
 }
 
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundLayering {
+    #[default]
+    None,
+    HalfAdd,
+    Backdrop,
+}
+
+impl BackgroundLayering {
+    pub const ALL: [Self; 3] = [Self::None, Self::HalfAdd, Self::Backdrop];
+}
+
+impl std::fmt::Display for BackgroundLayering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::HalfAdd => write!(f, "Half add"),
+            Self::Backdrop => write!(f, "Backdrop"),
+        }
+    }
+}
+
 pub fn is_valid_layer_name(name: &str) -> bool {
     !name.is_empty() && Path::new(name).file_name().and_then(|name| name.to_str()) == Some(name)
 }
@@ -398,6 +421,11 @@ pub struct Area {
     pub theme: ThemeName,
     pub vanilla_map_id: Option<u8>,
     pub bg_color: ColorRGB,
+    pub bg_layering: BackgroundLayering,
+    pub bg_camera_follow_x: f32,
+    pub bg_camera_drift_x: f32,
+    pub bg_camera_follow_y: f32,
+    pub bg_camera_drift_y: f32,
     // X and Y dimensions, measured in number of screens:
     pub size: (u8, u8),
     pub layers: Vec<Layer>,
@@ -843,6 +871,11 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
             theme: "Base".to_string(),
             vanilla_map_id: None,
             bg_color: [0; 3],
+            bg_layering: BackgroundLayering::None,
+            bg_camera_follow_x: 1.0,
+            bg_camera_drift_x: 0.0,
+            bg_camera_follow_y: 1.0,
+            bg_camera_drift_y: 0.0,
             size: (2, 2),
             layers: vec![Layer {
                 modified: true,

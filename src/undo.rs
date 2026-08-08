@@ -370,6 +370,38 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 color: state.areas[area_id].bg_color,
             })
         }
+        Message::EditAreaBGLayering { area_id, .. } => {
+            UndoAction::Ok(Message::EditAreaBGLayering {
+                area_id: area_id.clone(),
+                value: state.areas[area_id].bg_layering,
+            })
+        }
+        Message::EditAreaBGCameraFollowX { area_id, .. } => {
+            UndoAction::Ok(Message::EditAreaBGCameraFollowX {
+                area_id: area_id.clone(),
+                value: state.areas[area_id].bg_camera_follow_x,
+            })
+        }
+        Message::EditAreaBGCameraDriftX(_) => UndoAction::None,
+        Message::SetAreaBGCameraDriftX { area_id, .. } => {
+            UndoAction::Ok(Message::SetAreaBGCameraDriftX {
+                area_id: area_id.clone(),
+                value: state.areas[area_id].bg_camera_drift_x,
+            })
+        }
+        Message::EditAreaBGCameraFollowY { area_id, .. } => {
+            UndoAction::Ok(Message::EditAreaBGCameraFollowY {
+                area_id: area_id.clone(),
+                value: state.areas[area_id].bg_camera_follow_y,
+            })
+        }
+        Message::EditAreaBGCameraDriftY(_) => UndoAction::None,
+        Message::SetAreaBGCameraDriftY { area_id, .. } => {
+            UndoAction::Ok(Message::SetAreaBGCameraDriftY {
+                area_id: area_id.clone(),
+                value: state.areas[area_id].bg_camera_drift_y,
+            })
+        }
         Message::DeleteAreaDialogue => UndoAction::None,
         Message::DeleteArea(_) => UndoAction::Irreversible,
         Message::SelectTheme(_, _) => UndoAction::None,
