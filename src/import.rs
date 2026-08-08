@@ -1150,9 +1150,16 @@ impl<'a> Importer<'a> {
                                         }
                                     }
 
-                                    area.set_tile(x as u16, y as u16, tile_idx).unwrap();
-                                    area.set_palette(x as u16, y as u16, pal_id).unwrap();
-                                    area.set_flip(x as u16, y as u16, flip).unwrap();
+                                    area.set_layer_placement(
+                                        0,
+                                        x as u16,
+                                        y as u16,
+                                        Some(TilePlacement {
+                                            palette: pal_id,
+                                            tile: tile_idx,
+                                            flip,
+                                        }),
+                                    )?;
 
                                     match self.pal_bg_color.entry(pal_id) {
                                         Entry::Occupied(mut occupied_entry) => {

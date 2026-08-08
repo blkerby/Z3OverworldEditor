@@ -446,25 +446,6 @@ impl Area {
         Ok((x as usize, y as usize))
     }
 
-    pub fn get_bottom_bg2_layer(&self) -> Result<&Layer> {
-        self.layers
-            .iter()
-            .find(|layer| layer.background == Background::Bg2)
-            .context("area has no BG2 layer")
-    }
-
-    pub fn get_bottom_bg2_layer_mut(&mut self) -> Result<&mut Layer> {
-        self.layers
-            .iter_mut()
-            .find(|layer| layer.background == Background::Bg2)
-            .context("area has no BG2 layer")
-    }
-
-    pub fn get_placement(&self, x: TileCoord, y: TileCoord) -> Result<TilePlacement> {
-        let (x, y) = self.get_layer_coords(x, y)?;
-        self.get_bottom_bg2_layer()?.tiles[y][x].context("transparent tile")
-    }
-
     pub fn get_layer_placement(
         &self,
         layer_idx: usize,
@@ -488,50 +469,6 @@ impl Area {
         layer.modified = true;
         self.modified = true;
         Ok(())
-    }
-
-    pub fn get_palette(&self, x: TileCoord, y: TileCoord) -> Result<PaletteId> {
-        Ok(self.get_placement(x, y)?.palette)
-    }
-
-    pub fn get_tile(&self, x: TileCoord, y: TileCoord) -> Result<TileIdx> {
-        Ok(self.get_placement(x, y)?.tile)
-    }
-
-    pub fn get_flip(&self, x: TileCoord, y: TileCoord) -> Result<Flip> {
-        Ok(self.get_placement(x, y)?.flip)
-    }
-
-    pub fn set_placement(
-        &mut self,
-        x: TileCoord,
-        y: TileCoord,
-        placement: TilePlacement,
-    ) -> Result<()> {
-        let (x, y) = self.get_layer_coords(x, y)?;
-        let layer = self.get_bottom_bg2_layer_mut()?;
-        layer.tiles[y][x] = Some(placement);
-        layer.modified = true;
-        self.modified = true;
-        Ok(())
-    }
-
-    pub fn set_tile(&mut self, x: TileCoord, y: TileCoord, tile: TileIdx) -> Result<()> {
-        let mut placement = self.get_placement(x, y)?;
-        placement.tile = tile;
-        self.set_placement(x, y, placement)
-    }
-
-    pub fn set_palette(&mut self, x: TileCoord, y: TileCoord, palette: PaletteId) -> Result<()> {
-        let mut placement = self.get_placement(x, y)?;
-        placement.palette = palette;
-        self.set_placement(x, y, placement)
-    }
-
-    pub fn set_flip(&mut self, x: TileCoord, y: TileCoord, flip: Flip) -> Result<()> {
-        let mut placement = self.get_placement(x, y)?;
-        placement.flip = flip;
-        self.set_placement(x, y, placement)
     }
 
     pub fn get_unique_palettes(&self) -> Vec<PaletteId> {
