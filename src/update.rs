@@ -1457,7 +1457,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         name: name.clone(),
                         theme,
                         size: *size,
-                        vanilla_map_id: state.areas[&state.main_area_id].vanilla_map_id,
+                        vanilla_map_id: None,
                         bg_color: state.areas[&state.main_area_id].bg_color,
                         bg_layering: BackgroundLayering::None,
                         bg_camera_follow_x: 1.0,
