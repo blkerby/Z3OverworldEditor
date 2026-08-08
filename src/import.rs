@@ -970,6 +970,12 @@ impl<'a> Importer<'a> {
                 0x47 | 0x5B => (BackgroundLayering::Backdrop, 0.5, 0.0, 0.5, 0.0),
                 _ => (BackgroundLayering::None, 1.0, 0.0, 1.0, 0.0),
             };
+            let bg_color = match parent {
+                0x03 | 0x05 | 0x07 => [6, 12, 12],
+                0x43 | 0x45 | 0x47 => [6, 10, 7],
+                0x5B => [19, 15, 9],
+                _ => bg_color,
+            };
             let mut area: Area = Area {
                 modified: false,
                 name: area_name,
