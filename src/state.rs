@@ -536,7 +536,7 @@ impl Area {
 
     pub fn get_unique_palettes(&self) -> Vec<PaletteId> {
         let mut palettes: HashSet<PaletteId> = HashSet::new();
-        if let Ok(layer) = self.get_bottom_bg2_layer() {
+        for layer in &self.layers {
             for row in &layer.tiles {
                 for placement in row.iter().flatten() {
                     palettes.insert(placement.palette);
