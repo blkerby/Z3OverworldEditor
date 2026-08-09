@@ -52,10 +52,11 @@ pub enum DynamicTileType {
     GraveCorpse,
     GraveStairs,
     GravePit,
+    HyruleCastleGate,
 }
 
 impl DynamicTileType {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::CutGrass,
         Self::DigTerrain,
         Self::GreenBush,
@@ -77,6 +78,7 @@ impl DynamicTileType {
         Self::GraveCorpse,
         Self::GraveStairs,
         Self::GravePit,
+        Self::HyruleCastleGate,
     ];
 
     pub fn size(self) -> (usize, usize) {
@@ -88,6 +90,7 @@ impl DynamicTileType {
             | Self::SanctuaryDoor
             | Self::HyruleCastleDoor => (4, 4),
             Self::GraveCorpse | Self::GraveStairs | Self::GravePit => (4, 6),
+            Self::HyruleCastleGate => (8, 4),
             Self::SecretBombableEntrance | Self::WoodenDoor => (4, 2),
             _ => (2, 2),
         }
@@ -153,6 +156,7 @@ impl std::fmt::Display for DynamicTileType {
             Self::GraveCorpse => "Open grave with corpse",
             Self::GraveStairs => "Open grave with stairs",
             Self::GravePit => "Open grave with pit",
+            Self::HyruleCastleGate => "Open Hyrule Castle gate",
         })
     }
 }

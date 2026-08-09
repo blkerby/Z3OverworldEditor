@@ -515,7 +515,7 @@ pub fn dynamic_tiles_view(state: &EditorState) -> Element<'_, Message> {
 
     container(content)
         .padding(12)
-        .width(410)
+        .width(480)
         .height(Length::Fill)
         .into()
 }

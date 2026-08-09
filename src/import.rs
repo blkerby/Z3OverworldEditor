@@ -1615,6 +1615,23 @@ impl<'a> Importer<'a> {
             }
         }
 
+        let gate_parent = self.map_parents[0x1B] as usize;
+        let gate_map = self.build_map16(gate_parent);
+        let gate_x = 0x1E;
+        let gate_y = 0x27;
+        self.add_dynamic_variant(
+            DynamicTileType::HyruleCastleGate,
+            gate_parent,
+            vec![
+                gate_map[gate_y][gate_x..gate_x + 4].to_vec(),
+                gate_map[gate_y + 1][gate_x..gate_x + 4].to_vec(),
+            ],
+            vec![vec![
+                vec![0x0DBB, 0x0DBC, 0x0DBC, 0x0DBD],
+                vec![0x0DB8, 0x0DB9, 0x0DB9, 0x0DBA],
+            ]],
+        )?;
+
         let grave_parent = self.map_parents[0x14] as usize;
         let grave_map = self.build_map16(grave_parent);
         for grave in 0..15 {
