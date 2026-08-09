@@ -313,8 +313,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         let num_cols = self.area.size.0 as usize * 256 + 2;
         let num_rows = self.area.size.1 as usize * 256 + 2;
         let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
-        let mut bg1_data = (self.area.bg_layering == BackgroundLayering::HalfAdd)
-            .then(|| vec![0; data.len()]);
+        let mut bg1_data = vec![0; data.len()];
+        let mut bg2_data = vec![0; data.len()];
         let col_stride = 4;
         let row_stride = num_cols * col_stride;
         let bg = self.area.bg_color.map(scale_color);
@@ -333,9 +333,9 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
             if !visible {
                 continue;
             }
-            let layer_data = match (&mut bg1_data, layer.background) {
-                (Some(bg1_data), Background::Bg1) => bg1_data,
-                _ => &mut data,
+            let layer_data = match layer.background {
+                Background::Bg1 => &mut bg1_data,
+                Background::Bg2 => &mut bg2_data,
             };
             for (ty, row) in layer.tiles.iter().enumerate() {
                 for (tx, placement) in row.iter().enumerate() {
@@ -369,6 +369,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                     for py in 0..8 {
                         let mut addr = tile_addr;
                         for px in 0..8 {
+                            layer_data[addr..addr + 4].fill(0);
                             let color_idx = tile.pixels[py][px];
                             if color_idx == 0 {
                                 addr += 4;
@@ -401,14 +402,39 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                 }
             }
         }
-        if let Some(bg1_data) = bg1_data {
-            for addr in (0..data.len()).step_by(4) {
-                if bg1_data[addr + 3] == 0 {
-                    continue;
+        for addr in (0..data.len()).step_by(4) {
+            if self.position == AreaPosition::Side {
+                for layer_data in [&bg1_data, &bg2_data] {
+                    if layer_data[addr + 3] != 0 {
+                        data[addr..addr + 3].copy_from_slice(&layer_data[addr..addr + 3]);
+                    }
                 }
-                for channel in 0..3 {
-                    data[addr + channel] =
-                        ((data[addr + channel] as u16 + bg1_data[addr + channel] as u16) / 2) as u8;
+                continue;
+            }
+            match self.area.bg_layering {
+                BackgroundLayering::None => {
+                    if bg2_data[addr + 3] != 0 {
+                        data[addr..addr + 3].copy_from_slice(&bg2_data[addr..addr + 3]);
+                    }
+                }
+                BackgroundLayering::Backdrop => {
+                    for layer_data in [&bg1_data, &bg2_data] {
+                        if layer_data[addr + 3] != 0 {
+                            data[addr..addr + 3].copy_from_slice(&layer_data[addr..addr + 3]);
+                        }
+                    }
+                }
+                BackgroundLayering::HalfAdd => {
+                    if bg2_data[addr + 3] != 0 {
+                        data[addr..addr + 3].copy_from_slice(&bg2_data[addr..addr + 3]);
+                    }
+                    if bg1_data[addr + 3] != 0 {
+                        for channel in 0..3 {
+                            data[addr + channel] = ((data[addr + channel] as u16
+                                + bg1_data[addr + channel] as u16)
+                                / 2) as u8;
+                        }
+                    }
                 }
             }
         }

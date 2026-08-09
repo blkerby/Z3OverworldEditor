@@ -20,8 +20,9 @@ have:
 - a non-persisted dirty flag for PNG export.
 
 Each tile placement contains its palette, tile index, and flip. An absent
-placement is transparent. Palette color index zero is also transparent when a
-layer is rendered over another layer.
+placement exposes the lower layer. A present placement replaces the whole 8x8
+cell; its color-zero pixels remain transparent only when BG1 and BG2 are
+composited.
 
 Every area must contain at least one BG2 layer. Deleting the final BG2 layer or
 changing it to BG1 is rejected.
@@ -66,9 +67,9 @@ format.
 
 ## Rendering and editing
 
-Visible layers are rendered from bottom to top into one full-area RGBA buffer.
-A higher layer replaces lower pixels only where its tile uses a nonzero palette
-color index.
+Visible layers are resolved from bottom to top within BG1 and BG2 separately.
+A higher placement replaces the lower 8x8 cell, then the resolved backgrounds
+are composited per pixel according to the area's background mode.
 
 When an area is first loaded, the editor:
 
