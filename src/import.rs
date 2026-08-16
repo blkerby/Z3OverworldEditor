@@ -1421,7 +1421,7 @@ impl<'a> Importer<'a> {
                 actions.extend([
                     json!({ "action": "wait", "frames": 16 }),
                     json!({ "action": "play_sound", "channel": 1, "sound": 7 }),
-                    json!({ "action": "start_shake", "offsets": [[-1, 1], [1, -1]] }),
+                    json!({ "action": "start_shake" }),
                     json!({ "action": "wait", "frames": 56 }),
                     json!({ "action": "set_complete" }),
                 ]);
@@ -1447,7 +1447,7 @@ impl<'a> Importer<'a> {
             0x47 => {
                 actions.extend([
                     json!({ "action": "set_complete" }),
-                    json!({ "action": "start_shake", "offsets": [[-1, 1], [1, -1]] }),
+                    json!({ "action": "start_shake" }),
                     json!({ "action": "play_sound", "channel": 3, "sound": 2 }),
                     json!({ "action": "wait", "frames": 16 }),
                     json!({ "action": "draw", "layer": "Cutscene open" }),
