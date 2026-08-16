@@ -1023,28 +1023,13 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
             row![text("Background color:")],
             row![
                 text("Red"),
-                number_input(
-                    &area.bg_color[0],
-                    0..=31,
-                    Message::EditAreaBGRed
-                )
-                .width(rgb_width),
+                number_input(&area.bg_color[0], 0..=31, Message::EditAreaBGRed).width(rgb_width),
                 iced::widget::Space::with_width(10),
                 text("Green"),
-                number_input(
-                    &area.bg_color[1],
-                    0..=31,
-                    Message::EditAreaBGGreen
-                )
-                .width(rgb_width),
+                number_input(&area.bg_color[1], 0..=31, Message::EditAreaBGGreen).width(rgb_width),
                 iced::widget::Space::with_width(10),
                 text("Blue"),
-                number_input(
-                    &area.bg_color[2],
-                    0..=31,
-                    Message::EditAreaBGBlue
-                )
-                .width(rgb_width),
+                number_input(&area.bg_color[2], 0..=31, Message::EditAreaBGBlue).width(rgb_width),
             ]
             .spacing(5)
             .align_y(iced::alignment::Vertical::Center),

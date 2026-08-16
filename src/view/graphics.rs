@@ -47,24 +47,26 @@ impl canvas::Program<Message> for GraphicsBox {
         };
 
         let mut click: bool = false;
-        if let canvas::Event::Mouse(mouse_event) = event { match mouse_event {
-            mouse::Event::ButtonPressed(mouse::Button::Left) => {
-                state.clicking = true;
-                click = true;
-            }
-            mouse::Event::ButtonReleased(mouse::Button::Left) => {
-                state.clicking = false;
-            }
-            mouse::Event::CursorMoved { .. } => {
-                if state.clicking {
+        if let canvas::Event::Mouse(mouse_event) = event {
+            match mouse_event {
+                mouse::Event::ButtonPressed(mouse::Button::Left) => {
+                    state.clicking = true;
                     click = true;
                 }
+                mouse::Event::ButtonReleased(mouse::Button::Left) => {
+                    state.clicking = false;
+                }
+                mouse::Event::CursorMoved { .. } => {
+                    if state.clicking {
+                        click = true;
+                    }
+                }
+                mouse::Event::CursorLeft => {
+                    state.clicking = false;
+                }
+                _ => {}
             }
-            mouse::Event::CursorLeft => {
-                state.clicking = false;
-            }
-            _ => {}
-        } }
+        }
 
         if click {
             let y = (p.y / self.pixel_size) as i32;
@@ -194,71 +196,69 @@ pub fn pixel_editor(
             unreachable!()
         };
         let label_width = 105;
-        column![
-                    column![
-                    row![
-                        text("Tile number").width(label_width),
-                        text(format!("${:02X} ({})", idx, idx)),
-                    ]
-                    .align_y(Vertical::Center),
-                    row![
-                        text("Priority").width(label_width),
-                        pick_list(
-                            ["No", "Yes"],
-                            Some(if tile.priority { "Yes" } else { "No" }),
-                            move |x| Message::SetTilePriority {
-                                palette_id: pal_id,
-                                tile_idx: idx,
-                                priority: x == "Yes"
-                            }
-                        )
-                        .text_size(12)
-                    ]
-                    .align_y(Vertical::Center),
-                    row![
-                        text("Collision").width(label_width),
-                        number_input(&tile.collision, 0..=255, move |x| {
-                            Message::SetTileCollision {
-                                palette_id: pal_id,
-                                tile_idx: idx,
-                                collision: x,
-                            }
-                        })
-                        .width(60),
-                    ]
-                    .align_y(Vertical::Center),
-                    row![
-                        text("H-flippable").width(label_width),
-                        pick_list(
-                            ["No", "Yes"],
-                            Some(if tile.h_flippable { "Yes" } else { "No" }),
-                            move |x| Message::SetTileHFlippable {
-                                palette_id: pal_id,
-                                tile_idx: idx,
-                                h_flippable: x == "Yes"
-                            }
-                        )
-                        .text_size(12)
-                    ]
-                    .align_y(Vertical::Center),
-                    row![
-                        text("V-flippable").width(label_width),
-                        pick_list(
-                            ["No", "Yes"],
-                            Some(if tile.v_flippable { "Yes" } else { "No" }),
-                            move |x| Message::SetTileVFlippable {
-                                palette_id: pal_id,
-                                tile_idx: idx,
-                                v_flippable: x == "Yes"
-                            }
-                        )
-                        .text_size(12)
-                    ]
-                    .align_y(Vertical::Center),
-                ]
-                .spacing(12)
-                .padding([5, 15])
+        column![column![
+            row![
+                text("Tile number").width(label_width),
+                text(format!("${:02X} ({})", idx, idx)),
+            ]
+            .align_y(Vertical::Center),
+            row![
+                text("Priority").width(label_width),
+                pick_list(
+                    ["No", "Yes"],
+                    Some(if tile.priority { "Yes" } else { "No" }),
+                    move |x| Message::SetTilePriority {
+                        palette_id: pal_id,
+                        tile_idx: idx,
+                        priority: x == "Yes"
+                    }
+                )
+                .text_size(12)
+            ]
+            .align_y(Vertical::Center),
+            row![
+                text("Collision").width(label_width),
+                number_input(&tile.collision, 0..=255, move |x| {
+                    Message::SetTileCollision {
+                        palette_id: pal_id,
+                        tile_idx: idx,
+                        collision: x,
+                    }
+                })
+                .width(60),
+            ]
+            .align_y(Vertical::Center),
+            row![
+                text("H-flippable").width(label_width),
+                pick_list(
+                    ["No", "Yes"],
+                    Some(if tile.h_flippable { "Yes" } else { "No" }),
+                    move |x| Message::SetTileHFlippable {
+                        palette_id: pal_id,
+                        tile_idx: idx,
+                        h_flippable: x == "Yes"
+                    }
+                )
+                .text_size(12)
+            ]
+            .align_y(Vertical::Center),
+            row![
+                text("V-flippable").width(label_width),
+                pick_list(
+                    ["No", "Yes"],
+                    Some(if tile.v_flippable { "Yes" } else { "No" }),
+                    move |x| Message::SetTileVFlippable {
+                        palette_id: pal_id,
+                        tile_idx: idx,
+                        v_flippable: x == "Yes"
+                    }
+                )
+                .text_size(12)
+            ]
+            .align_y(Vertical::Center),
         ]
+        .spacing(12)
+        .padding([5, 15])]
         .into()
     } else {
         Space::with_width(0).into()

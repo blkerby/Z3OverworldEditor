@@ -130,7 +130,9 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
     ) -> (canvas::event::Status, Option<Message>) {
         if let canvas::Event::Mouse(event) = event {
             match event {
-                mouse::Event::ButtonPressed(button @ (mouse::Button::Left | mouse::Button::Right)) => {
+                mouse::Event::ButtonPressed(
+                    button @ (mouse::Button::Left | mouse::Button::Right),
+                ) => {
                     let Some(point) = cursor.position_over(bounds) else {
                         return (canvas::event::Status::Ignored, None);
                     };
@@ -219,7 +221,10 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
                 let mut property_mismatch = false;
                 if let Some(placement) = placement {
                     if let Some(&palette_idx) = self.palette_indices.get(&placement.palette) {
-                        if let Some(tile) = self.palettes[palette_idx].tiles.get(placement.tile as usize) {
+                        if let Some(tile) = self.palettes[palette_idx]
+                            .tiles
+                            .get(placement.tile as usize)
+                        {
                             let tile = placement.flip.apply_to_tile(*tile);
                             for py in 0..8 {
                                 for px in 0..8 {
@@ -246,8 +251,7 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
                                         y,
                                         row.len(),
                                         self.grid.tiles.len(),
-                                    )
-                                        && tile.collision != expected;
+                                    ) && tile.collision != expected;
                                 }
                             }
                         } else {
@@ -296,10 +300,11 @@ impl canvas::Program<Message> for DynamicGrid<'_> {
 
         if self.selection_source
             == (SelectionSource::DynamicTiles {
-            kind: self.kind,
-            variant: self.variant,
-            target: self.target,
-        }) {
+                kind: self.kind,
+                variant: self.variant,
+                target: self.target,
+            })
+        {
             if let (Some(start), Some(end)) = (self.start_coords, self.end_coords) {
                 let left = start.0.min(end.0) as f32 * tile_size;
                 let top = start.1.min(end.1) as f32 * tile_size;
@@ -402,8 +407,12 @@ pub fn dynamic_tiles_view(state: &EditorState) -> Element<'_, Message> {
         tooltip::Position::Bottom,
     );
     let mut content = column![
-        row![text("Dynamic tiles").size(20), horizontal_space(), close_button]
-            .align_y(iced::alignment::Vertical::Center),
+        row![
+            text("Dynamic tiles").size(20),
+            horizontal_space(),
+            close_button
+        ]
+        .align_y(iced::alignment::Vertical::Center),
         row![
             text("Type"),
             pick_list(
@@ -445,7 +454,7 @@ pub fn dynamic_tiles_view(state: &EditorState) -> Element<'_, Message> {
                     .spacing(16),
                     horizontal_space(),
                 ]
-                .spacing(8)
+                .spacing(8),
             );
         }
         for (variant_idx, variant) in group.variants.iter().enumerate() {

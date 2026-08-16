@@ -47,24 +47,24 @@ impl canvas::Program<Message> for ColorBox {
 
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(button)) => {
-                    let message = match button {
-                        mouse::Button::Left => {
-                            if self.tool == Tool::Brush {
-                                Some(Message::BrushColor {
-                                    palette_id: self.palette_id,
-                                    color_idx: self.color_idx,
-                                    color: self.selected_color,
-                                })
-                            } else {
-                                Some(Message::SelectColor(self.palette_idx, self.color_idx))
-                            }
+                let message = match button {
+                    mouse::Button::Left => {
+                        if self.tool == Tool::Brush {
+                            Some(Message::BrushColor {
+                                palette_id: self.palette_id,
+                                color_idx: self.color_idx,
+                                color: self.selected_color,
+                            })
+                        } else {
+                            Some(Message::SelectColor(self.palette_idx, self.color_idx))
                         }
-                        mouse::Button::Right => None,
-                        _ => None,
-                    };
+                    }
+                    mouse::Button::Right => None,
+                    _ => None,
+                };
 
-                    (canvas::event::Status::Captured, message)
-                }
+                (canvas::event::Status::Captured, message)
+            }
             _ => (canvas::event::Status::Ignored, None),
         }
     }

@@ -12,14 +12,10 @@ use iced_aw::number_input;
 use crate::{
     helpers::{alpha_blend, scale_color},
     message::Message,
-    state::{
-        AnimatedTileGroup, EditorState, Palette, PixelTarget, Tile, TileIdx, TilePixels,
-    },
+    state::{AnimatedTileGroup, EditorState, Palette, PixelTarget, Tile, TileIdx, TilePixels},
 };
 
-use super::{
-    graphics::pixel_editor, modal_background_style, palette::palette_colors_view,
-};
+use super::{graphics::pixel_editor, modal_background_style, palette::palette_colors_view};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GroupChoice(TileIdx);
@@ -44,7 +40,10 @@ fn animated_pixels(
 }
 
 fn grid_size(frame_count: usize, pixel_size: f32) -> Size {
-    Size::new(16.0 * 8.0 * pixel_size, frame_count as f32 * 8.0 * pixel_size)
+    Size::new(
+        16.0 * 8.0 * pixel_size,
+        frame_count as f32 * 8.0 * pixel_size,
+    )
 }
 
 struct AnimatedTileGrid<'a> {
@@ -115,19 +114,14 @@ impl canvas::Program<Message> for AnimatedTileGrid<'_> {
                 data.push(255);
             }
         }
-        let image = iced::advanced::image::Image::new(
-            iced::advanced::image::Handle::from_rgba(
-                16 * 8,
-                (frame_count * 8) as u32,
-                data,
-            ),
-        )
+        let image = iced::advanced::image::Image::new(iced::advanced::image::Handle::from_rgba(
+            16 * 8,
+            (frame_count * 8) as u32,
+            data,
+        ))
         .filter_method(iced::widget::image::FilterMethod::Nearest)
         .snap(true);
-        canvas_frame.draw_image(
-            Rectangle::new(Point::ORIGIN, image_size),
-            image,
-        );
+        canvas_frame.draw_image(Rectangle::new(Point::ORIGIN, image_size), image);
         vec![canvas_frame.into_geometry()]
     }
 }
@@ -198,26 +192,20 @@ pub fn animated_tiles_view(
             .find(|group| group.base_tile == base_tile)
         {
             let frame_count = (group.frames.len() + 1) as u16;
-            let resize_group = move |new_count: u16| {
-                Message::SetAnimatedFrameCount {
-                    palette_id,
-                    base_tile,
-                    frame_count: new_count,
-                }
+            let resize_group = move |new_count: u16| Message::SetAnimatedFrameCount {
+                palette_id,
+                base_tile,
+                frame_count: new_count,
             };
-            let set_hold = move |frame_hold| {
-                Message::SetAnimatedFrameHold {
-                    palette_id,
-                    base_tile,
-                    frame_hold,
-                }
+            let set_hold = move |frame_hold| Message::SetAnimatedFrameHold {
+                palette_id,
+                base_tile,
+                frame_hold,
             };
-            let set_phase = move |phase_offset| {
-                Message::SetAnimatedPhaseOffset {
-                    palette_id,
-                    base_tile,
-                    phase_offset,
-                }
+            let set_phase = move |phase_offset| Message::SetAnimatedPhaseOffset {
+                palette_id,
+                base_tile,
+                phase_offset,
             };
             let frame = selected_frame.min(group.frames.len());
             let tile_col = selected_tile.min(15);
@@ -250,12 +238,12 @@ pub fn animated_tiles_view(
                         text("Phase"),
                         number_input(&group.phase_offset, 0..=u16::MAX, set_phase).width(90),
                         horizontal_space(),
-                        button(text("Delete group"))
-                            .style(button::danger)
-                            .on_press(Message::DeleteAnimatedTileGroup {
+                        button(text("Delete group")).style(button::danger).on_press(
+                            Message::DeleteAnimatedTileGroup {
                                 palette_id,
                                 base_tile,
-                            }),
+                            }
+                        ),
                     ]
                     .spacing(8)
                     .align_y(iced::alignment::Vertical::Center),

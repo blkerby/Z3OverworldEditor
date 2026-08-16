@@ -1104,9 +1104,9 @@ impl<'a> Importer<'a> {
                                             h_flippable: false,
                                             v_flippable: false,
                                             collision,
-                                            pixels: t8.flip.apply_to_pixels(
-                                                self.tiles8[tiles8_idx as usize],
-                                            ),
+                                            pixels: t8
+                                                .flip
+                                                .apply_to_pixels(self.tiles8[tiles8_idx as usize]),
                                         };
                                         match tile_lookup[palette_idx].get(&tile) {
                                             Some(x) => *x,
