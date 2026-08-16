@@ -1,4 +1,4 @@
-use anyhow::{bail, ensure, Result};
+use anyhow::{bail, ensure, Context, Result};
 use hashbrown::{hash_map::Entry, HashMap};
 use itertools::Itertools;
 use log::{info, warn};
@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    persist::{load_area, load_project, save_area_json, save_area_png, save_project},
+    persist::{load_area, load_project, save_area_json, save_area_png, save_json, save_project},
     state::{
         AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering, ColorRGB,
         ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant,
@@ -18,6 +18,7 @@ use crate::{
     },
     update::update_palette_order,
 };
+use serde_json::{json, Value};
 
 const ANIMATED_TILE_START: u16 = 0x1C0;
 const ANIMATED_TILE_COUNT: u16 = 32;
@@ -241,7 +242,7 @@ impl Constants {
             gfx_high_addr: SnesAddr(0x00E795),
             gfx_low_addr: SnesAddr(0x00E79A),
             tiles16_addr: SnesAddr(0x0F8000),
-            tiles16_cnt: 3742,
+            tiles16_cnt: 3748,
             tiles32_tl_addr: SnesAddr(0x038000),
             tiles32_tr_addr: SnesAddr(0x03B400),
             tiles32_bl_addr: SnesAddr(0x048000),
@@ -360,6 +361,8 @@ type Tile32 = [Tile16Idx; 4];
 type Tile32Idx = u16;
 
 type MapIdx = u16;
+
+type CutsceneWrite = (u16, u16, u16); // WRAM offset, first Map16 ID, count
 
 #[derive(Debug)]
 struct MapPalettes {
@@ -1214,11 +1217,283 @@ impl<'a> Importer<'a> {
                     },
                 );
             }
+            if let Some(cutscenes) = self.add_vanilla_cutscene(parent, &mut area)? {
+                let project_dir = self
+                    .state
+                    .global_config
+                    .project_dir
+                    .as_ref()
+                    .context("Project directory not set.")?;
+                let path = project_dir
+                    .join("Areas")
+                    .join(&area.name)
+                    .join(&area.theme)
+                    .join("cutscenes.json");
+                save_json(&path, &cutscenes)?;
+            }
             self.state
                 .set_area(crate::state::AreaPosition::Main, area)?;
             save_area_json(self.state, &self.state.main_area_id.clone())?;
         }
         Ok(())
+    }
+
+    fn add_vanilla_cutscene(&mut self, parent: usize, area: &mut Area) -> Result<Option<Value>> {
+        let phases: &[&[CutsceneWrite]] = match parent {
+            0x5E => &[
+                &[
+                    (0x01E6, 0x0E2B, 1),
+                    (0x02EA, 0x0E2A, 1),
+                    (0x026A, 0x0E20, 1),
+                    (0x02EA, 0x0E21, 1),
+                ],
+                &[(0x026A, 0x0E22, 1), (0x02EA, 0x0E23, 1)],
+                &[
+                    (0x026A, 0x0E24, 1),
+                    (0x02EA, 0x0E25, 1),
+                    (0x036A, 0x0E26, 1),
+                ],
+                &[
+                    (0x026A, 0x0E27, 1),
+                    (0x02EA, 0x0E28, 1),
+                    (0x036A, 0x0E29, 1),
+                ],
+            ],
+            0x40 => &[
+                &[(0x0812, 0x0E00, 1), (0x0814, 0x0E00, 1)],
+                &[(0x0790, 0x0E01, 1), (0x0792, 0x0E02, 3)],
+                &[(0x0710, 0x0E01, 1), (0x0712, 0x0E02, 3)],
+                &[
+                    (0x0590, 0x0E0B, 1),
+                    (0x0596, 0x0E0C, 1),
+                    (0x0610, 0x0E07, 4),
+                    (0x0692, 0x0E05, 2),
+                ],
+                &[
+                    (0x0590, 0x0E0D, 1),
+                    (0x0596, 0x0E0E, 1),
+                    (0x0610, 0x0E0F, 4),
+                    (0x0692, 0x0E13, 2),
+                ],
+            ],
+            0x70 => &[
+                &[
+                    (0x0622, 0x0E42, 1),
+                    (0x0624, 0x0E43, 3),
+                    (0x06A2, 0x0E46, 4),
+                    (0x0722, 0x0E4A, 4),
+                ],
+                &[
+                    (0x05A2, 0x0E4E, 1),
+                    (0x05A4, 0x0E4F, 3),
+                    (0x0622, 0x0E52, 4),
+                    (0x06A2, 0x0E56, 4),
+                    (0x0722, 0x0E5A, 4),
+                ],
+                &[
+                    (0x0522, 0x0E5E, 1),
+                    (0x0524, 0x0E5F, 3),
+                    (0x05A2, 0x0E62, 4),
+                    (0x0622, 0x0E66, 4),
+                    (0x06A2, 0x0E6A, 4),
+                    (0x0722, 0x0E6E, 4),
+                ],
+            ],
+            0x47 => &[&[
+                (0x099E, 0x0E72, 1),
+                (0x09A0, 0x0E73, 3),
+                (0x0A1E, 0x0E76, 4),
+                (0x0A9E, 0x0E7A, 4),
+                (0x0B1E, 0x0E7E, 4),
+            ]],
+            0x43 => &[
+                &[
+                    (0x045E, 0x0E82, 1),
+                    (0x0460, 0x0E83, 1),
+                    (0x04DE, 0x0E9C, 2),
+                    (0x055E, 0x0E84, 2),
+                ],
+                &[
+                    (0x045E, 0x0E86, 1),
+                    (0x0460, 0x0E87, 1),
+                    (0x04DE, 0x0E88, 2),
+                    (0x055E, 0x0E8A, 2),
+                ],
+                &[
+                    (0x045E, 0x0E8C, 1),
+                    (0x0460, 0x0E8D, 1),
+                    (0x04DE, 0x0E8E, 1),
+                    (0x04E0, 0x0E8E, 1),
+                    (0x055E, 0x0E8F, 1),
+                    (0x0560, 0x0E8F, 1),
+                ],
+                &[
+                    (0x045E, 0x0E90, 1),
+                    (0x0460, 0x0E91, 1),
+                    (0x04DE, 0x0E92, 2),
+                ],
+                &[(0x04DE, 0x0E94, 1), (0x04E0, 0x0E95, 1)],
+                &[
+                    (0x04DE, 0x0E96, 1),
+                    (0x04E0, 0x0E97, 1),
+                    (0x055E, 0x0E98, 2),
+                ],
+                &[(0x055E, 0x0E94, 1), (0x0560, 0x0E95, 1)],
+                &[
+                    (0x055E, 0x0E96, 1),
+                    (0x0560, 0x0E97, 1),
+                    (0x05DE, 0x0E9A, 1),
+                    (0x05E0, 0x0E9B, 1),
+                ],
+                &[(0x05DE, 0x0E94, 1), (0x05E0, 0x0E95, 1)],
+            ],
+            _ => return Ok(None),
+        };
+
+        let width = area.size.0 as usize * 32;
+        let height = area.size.1 as usize * 32;
+        for (phase_idx, phase) in phases.iter().enumerate() {
+            let mut tiles = vec![vec![None; width]; height];
+            for &(offset, first_tile, count) in *phase {
+                let map16 = vec![(first_tile..first_tile + count).collect()];
+                let grid = self.build_dynamic_grid(parent, &map16, true)?;
+                let base_x = (offset & 0x7E) as usize;
+                let base_y = (offset >> 7) as usize * 2;
+                for y in 0..2 {
+                    for x in 0..grid.tiles[0].len() {
+                        tiles[base_y + y][base_x + x] = grid.tiles[y][x];
+                    }
+                }
+            }
+            let name = if phase_idx + 1 == phases.len() {
+                "Cutscene open".to_string()
+            } else {
+                format!("Cutscene phase {}", phase_idx + 1)
+            };
+            area.layers.push(Layer {
+                modified: true,
+                name,
+                background: Background::Bg2,
+                tiles,
+            });
+        }
+
+        let mut actions = vec![];
+        let event = match parent {
+            0x5E => {
+                actions.push(json!({ "action": "wait", "frames": 64 }));
+                actions.push(json!({ "action": "set_complete" }));
+                for phase_idx in 0..4 {
+                    actions.push(json!({ "action": "play_sound", "channel": 2, "sound": 12 }));
+                    actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 7 }));
+                    let layer = if phase_idx == 3 {
+                        "Cutscene open".to_string()
+                    } else {
+                        format!("Cutscene phase {}", phase_idx + 1)
+                    };
+                    actions.push(json!({ "action": "draw", "layer": layer }));
+                    actions.push(json!({ "action": "wait", "frames": 32 }));
+                }
+                actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 27 }));
+                actions.push(json!({ "action": "end" }));
+                "palace_of_darkness_entrance_opened"
+            }
+            0x40 => {
+                actions.push(json!({ "action": "wait", "frames": 4 }));
+                actions.push(json!({ "action": "set_complete" }));
+                for phase_idx in 0..5 {
+                    let layer = if phase_idx == 4 {
+                        "Cutscene open".to_string()
+                    } else {
+                        format!("Cutscene phase {}", phase_idx + 1)
+                    };
+                    actions.push(json!({ "action": "draw", "layer": layer }));
+                    actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 22 }));
+                    if phase_idx < 4 {
+                        actions.push(json!({ "action": "wait", "frames": 12 }));
+                    }
+                }
+                actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 27 }));
+                actions.push(json!({ "action": "end" }));
+                "skull_woods_entrance_opened"
+            }
+            0x70 => {
+                actions.extend([
+                    json!({ "action": "wait", "frames": 16 }),
+                    json!({ "action": "play_sound", "channel": 1, "sound": 7 }),
+                    json!({ "action": "start_shake", "offsets": [[-1, 1], [1, -1]] }),
+                    json!({ "action": "wait", "frames": 56 }),
+                    json!({ "action": "set_complete" }),
+                ]);
+                for (phase_idx, frames) in [72, 80, 128].into_iter().enumerate() {
+                    actions.push(json!({ "action": "play_sound", "channel": 2, "sound": 12 }));
+                    actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 7 }));
+                    let layer = if phase_idx == 2 {
+                        "Cutscene open".to_string()
+                    } else {
+                        format!("Cutscene phase {}", phase_idx + 1)
+                    };
+                    actions.push(json!({ "action": "draw", "layer": layer }));
+                    actions.push(json!({ "action": "wait", "frames": frames }));
+                }
+                actions.extend([
+                    json!({ "action": "play_sound", "channel": 1, "sound": 5 }),
+                    json!({ "action": "play_sound", "channel": 3, "sound": 27 }),
+                    json!({ "action": "stop_shake" }),
+                    json!({ "action": "end" }),
+                ]);
+                "misery_mire_entrance_opened"
+            }
+            0x47 => {
+                actions.extend([
+                    json!({ "action": "set_complete" }),
+                    json!({ "action": "start_shake", "offsets": [[-1, 1], [1, -1]] }),
+                    json!({ "action": "play_sound", "channel": 3, "sound": 2 }),
+                    json!({ "action": "wait", "frames": 16 }),
+                    json!({ "action": "draw", "layer": "Cutscene open" }),
+                    json!({ "action": "play_sound", "channel": 3, "sound": 2 }),
+                    json!({ "action": "wait", "frames": 16 }),
+                    json!({ "action": "play_sound", "channel": 1, "sound": 5 }),
+                    json!({ "action": "play_sound", "channel": 3, "sound": 27 }),
+                    json!({ "action": "stop_shake" }),
+                    json!({ "action": "end" }),
+                ]);
+                "turtle_rock_entrance_opened"
+            }
+            0x43 => {
+                actions.push(json!({ "action": "set_complete" }));
+                actions.push(json!({ "action": "play_sound", "channel": 1, "sound": 7 }));
+                for (phase_idx, frames) in
+                    [48, 48, 52, 32, 32, 32, 32, 32, 32].into_iter().enumerate()
+                {
+                    actions.push(json!({ "action": "wait", "frames": frames }));
+                    if phase_idx == 8 {
+                        actions.push(json!({ "action": "play_sound", "channel": 1, "sound": 5 }));
+                    }
+                    actions.push(json!({ "action": "play_sound", "channel": 2, "sound": 12 }));
+                    actions.push(json!({ "action": "play_sound", "channel": 3, "sound": 7 }));
+                    let layer = if phase_idx == 8 {
+                        "Cutscene open".to_string()
+                    } else {
+                        format!("Cutscene phase {}", phase_idx + 1)
+                    };
+                    actions.push(json!({ "action": "draw", "layer": layer }));
+                }
+                actions.extend([
+                    json!({ "action": "wait", "frames": 72 }),
+                    json!({ "action": "play_sound", "channel": 3, "sound": 27 }),
+                    json!({ "action": "play_music", "song": 13 }),
+                    json!({ "action": "play_sound", "channel": 1, "sound": 9 }),
+                    json!({ "action": "end" }),
+                ]);
+                "ganons_tower_entrance_opened"
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(Some(
+            json!({ "cutscenes": [{ "event": event, "actions": actions }] }),
+        ))
     }
 
     fn build_dynamic_grid(
@@ -1306,6 +1581,7 @@ impl<'a> Importer<'a> {
                         Some(placement) => placement,
                         None => {
                             let tile_idx = self.state.palettes[palette_idx].tiles.len() as TileIdx;
+                            self.state.palettes[palette_idx].modified = true;
                             self.state.palettes[palette_idx].tiles.push(tile);
                             TilePlacement {
                                 palette: palette_id,

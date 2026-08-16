@@ -23,7 +23,7 @@ use crate::{
     update::update_palette_order,
 };
 
-fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<()> {
+pub(crate) fn save_json<T: Serialize>(path: &Path, data: &T) -> Result<()> {
     info!("Saving {}", path.display());
     let formatter = PrettyCompactFormatter::new().with_max_line_length(200);
     let mut data_bytes = vec![];
