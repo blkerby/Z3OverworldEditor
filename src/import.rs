@@ -364,6 +364,63 @@ type MapIdx = u16;
 
 type CutsceneWrite = (u16, u16, u16); // WRAM offset, first Map16 ID, count
 
+const DRAINED_DAM_WRITES: &[(u16, &[u16])] = &[
+    (0x0DD9, &[0x03AC, 0x0424, 0x04A0, 0x051E, 0x061C, 0x0734]),
+    (0x0DDA, &[0x03AE, 0x04A2]),
+    (0x0DDB, &[0x03B0, 0x0438, 0x04BA, 0x05AA, 0x073A]),
+    (0x0DDC, &[0x0426, 0x0428, 0x042A, 0x0432, 0x0434, 0x0436]),
+    (0x0DDD, &[0x042C, 0x04A4, 0x0520, 0x061E]),
+    (
+        0x0DDE,
+        &[
+            0x042E, 0x04A6, 0x04A8, 0x04B0, 0x04B6, 0x0522, 0x0524, 0x0526, 0x0538, 0x05A0, 0x05A2,
+            0x05A4, 0x05A6, 0x0620, 0x0622, 0x069E, 0x06A0, 0x071E, 0x0720, 0x0826, 0x08A6, 0x08A8,
+            0x0926,
+        ],
+    ),
+    (0x0DDF, &[0x0430, 0x04B8, 0x05A8, 0x062A]),
+    (0x0DE0, &[0x04AA, 0x04B2, 0x0528, 0x05B8, 0x08AA, 0x0928]),
+    (0x0DE1, &[0x04AC, 0x0530, 0x079E, 0x07A0, 0x09A6, 0x09B8]),
+    (0x0DE2, &[0x04AE, 0x04B4, 0x0536, 0x07A2, 0x0824]),
+    (0x0DE3, &[0x052E, 0x0534, 0x079C, 0x0822, 0x0934, 0x09B6]),
+    (0x0DE4, &[0x053A, 0x0638, 0x06B8, 0x093A]),
+    (
+        0x0DE5,
+        &[
+            0x059E, 0x05B6, 0x0636, 0x069C, 0x06B6, 0x071C, 0x08A4, 0x0924,
+        ],
+    ),
+    (0x0DE6, &[0x0624, 0x06A2]),
+    (0x0DE7, &[0x0626]),
+    (0x0DE8, &[0x0628]),
+    (0x0DE9, &[0x06A4, 0x07B6]),
+    (
+        0x0DEA,
+        &[0x06A6, 0x0726, 0x0728, 0x072A, 0x07AA, 0x0836, 0x0838],
+    ),
+    (0x0DEB, &[0x06A8, 0x07B8]),
+    (0x0DEC, &[0x06AA]),
+    (0x0DED, &[0x0722, 0x07A4, 0x0828]),
+    (0x0DEE, &[0x0724]),
+    (0x0DEF, &[0x07A6]),
+    (0x0DF0, &[0x07A8, 0x08B6]),
+    (0x0DF1, &[0x07B4]),
+    (0x0DF2, &[0x07BA]),
+    (0x0DF3, &[0x082A]),
+    (0x0DF4, &[0x0834]),
+    (0x0DF5, &[0x083A]),
+    (0x0DF6, &[0x08B4]),
+    (0x0DF7, &[0x08B8]),
+    (0x0DF8, &[0x08BA]),
+    (0x0DF9, &[0x0936]),
+    (0x0DFA, &[0x0938]),
+    (0x0DFB, &[0x052A, 0x0532, 0x092A]),
+    (0x0DFC, &[0x05BA, 0x09A8, 0x09BA]),
+    (0x0DFD, &[0x09A4]),
+    (0x0DFE, &[0x0736]),
+    (0x0DFF, &[0x0738]),
+];
+
 #[derive(Debug)]
 struct MapPalettes {
     main: u8,
@@ -1216,6 +1273,29 @@ impl<'a> Importer<'a> {
                         tiles,
                     },
                 );
+            }
+            if matches!(parent, 0x3B | 0x7B) {
+                let width = size.0 as usize * 64;
+                let height = size.1 as usize * 64;
+                let mut tiles = vec![vec![None; width]; height];
+                for &(map16_id, offsets) in DRAINED_DAM_WRITES {
+                    let grid = self.build_dynamic_grid(parent, &[vec![map16_id]], true)?;
+                    for &offset in offsets {
+                        let base_x = (offset & 0x7E) as usize;
+                        let base_y = (offset >> 7) as usize * 2;
+                        for y in 0..2 {
+                            for x in 0..2 {
+                                tiles[base_y + y][base_x + x] = grid.tiles[y][x];
+                            }
+                        }
+                    }
+                }
+                area.layers.push(Layer {
+                    modified: true,
+                    name: "Drained".to_string(),
+                    background: Background::Bg2,
+                    tiles,
+                });
             }
             if let Some(cutscenes) = self.add_vanilla_cutscene(parent, &mut area)? {
                 let project_dir = self
