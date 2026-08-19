@@ -364,6 +364,22 @@ type MapIdx = u16;
 
 type CutsceneWrite = (u16, u16, u16); // WRAM offset, first Map16 ID, count
 
+const LUMBERJACK_WRITES: &[(u16, &[u16])] = &[
+    (0x0E2C, &[0x0816, 0x0818, 0x081A, 0x081C, 0x0896, 0x089C]),
+    (0x0E2D, &[0x0898]),
+    (0x0E2E, &[0x089A]),
+    (0x0E2F, &[0x0916]),
+    (0x0E30, &[0x0918]),
+    (0x0E31, &[0x091A]),
+    (0x0E32, &[0x091C]),
+    (0x0E33, &[0x0996]),
+    (0x0E34, &[0x0998]),
+    (0x0E35, &[0x099A]),
+    (0x0E36, &[0x099C]),
+    (0x0E37, &[0x0A18]),
+    (0x0E38, &[0x0A1A]),
+];
+
 const DRAINED_DAM_WRITES: &[(u16, &[u16])] = &[
     (0x0DD9, &[0x03AC, 0x0424, 0x04A0, 0x051E, 0x061C, 0x0734]),
     (0x0DDA, &[0x03AE, 0x04A2]),
@@ -1274,11 +1290,16 @@ impl<'a> Importer<'a> {
                     },
                 );
             }
-            if matches!(parent, 0x3B | 0x7B) {
+            let state_layer = match parent {
+                0x02 => Some(("Lumberjack", LUMBERJACK_WRITES)),
+                0x3B | 0x7B => Some(("Drained", DRAINED_DAM_WRITES)),
+                _ => None,
+            };
+            if let Some((name, writes)) = state_layer {
                 let width = size.0 as usize * 64;
                 let height = size.1 as usize * 64;
                 let mut tiles = vec![vec![None; width]; height];
-                for &(map16_id, offsets) in DRAINED_DAM_WRITES {
+                for &(map16_id, offsets) in writes {
                     let grid = self.build_dynamic_grid(parent, &[vec![map16_id]], true)?;
                     for &offset in offsets {
                         let base_x = (offset & 0x7E) as usize;
@@ -1292,7 +1313,7 @@ impl<'a> Importer<'a> {
                 }
                 area.layers.push(Layer {
                     modified: true,
-                    name: "Drained".to_string(),
+                    name: name.to_string(),
                     background: Background::Bg2,
                     tiles,
                 });
