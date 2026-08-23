@@ -388,6 +388,22 @@ const BIRD_STATUE_WRITES: &[(u16, &[u16])] = &[
     (0x0E1F, &[0x0CC2]),
 ];
 
+const THIEVES_TOWN_WRITES: &[(u16, &[u16])] = &[
+    (0x0E15, &[0x0D3E]),
+    (0x0E16, &[0x0D40]),
+    (0x0E17, &[0x0DBE]),
+    (0x0E18, &[0x0DC0]),
+    (0x0E19, &[0x0E3E]),
+    (0x0E1A, &[0x0E40]),
+];
+
+const PURPLE_CHEST_RUINS_WRITES: &[(u16, &[u16])] = &[
+    (0x0912, &[0x0D20]),
+    (0x0913, &[0x0D22]),
+    (0x0914, &[0x0DA0]),
+    (0x0915, &[0x0DA2]),
+];
+
 const DRAINED_DAM_WRITES: &[(u16, &[u16])] = &[
     (0x0DD9, &[0x03AC, 0x0424, 0x04A0, 0x051E, 0x061C, 0x0734]),
     (0x0DDA, &[0x03AE, 0x04A2]),
@@ -1302,6 +1318,8 @@ impl<'a> Importer<'a> {
                 0x02 => Some(("Lumberjack", LUMBERJACK_WRITES)),
                 0x18 => Some(("Bird Statue", BIRD_STATUE_WRITES)),
                 0x3B | 0x7B => Some(("Drained", DRAINED_DAM_WRITES)),
+                0x58 => Some(("Thieves' Town", THIEVES_TOWN_WRITES)),
+                0x62 => Some(("Hidden Stairs", PURPLE_CHEST_RUINS_WRITES)),
                 _ => None,
             };
             if let Some((name, writes)) = state_layer {
