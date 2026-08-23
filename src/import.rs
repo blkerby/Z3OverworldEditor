@@ -380,6 +380,14 @@ const LUMBERJACK_WRITES: &[(u16, &[u16])] = &[
     (0x0E38, &[0x0A1A]),
 ];
 
+const BIRD_STATUE_WRITES: &[(u16, &[u16])] = &[
+    (0x0E1B, &[0x0C3E, 0x0C42]),
+    (0x0E1C, &[0x0C40]),
+    (0x0E1D, &[0x0CBE]),
+    (0x0E1E, &[0x0CC0]),
+    (0x0E1F, &[0x0CC2]),
+];
+
 const DRAINED_DAM_WRITES: &[(u16, &[u16])] = &[
     (0x0DD9, &[0x03AC, 0x0424, 0x04A0, 0x051E, 0x061C, 0x0734]),
     (0x0DDA, &[0x03AE, 0x04A2]),
@@ -1292,6 +1300,7 @@ impl<'a> Importer<'a> {
             }
             let state_layer = match parent {
                 0x02 => Some(("Lumberjack", LUMBERJACK_WRITES)),
+                0x18 => Some(("Bird Statue", BIRD_STATUE_WRITES)),
                 0x3B | 0x7B => Some(("Drained", DRAINED_DAM_WRITES)),
                 _ => None,
             };
