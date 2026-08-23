@@ -388,6 +388,8 @@ const BIRD_STATUE_WRITES: &[(u16, &[u16])] = &[
     (0x0E1F, &[0x0CC2]),
 ];
 
+const TURTLE_ROCK_PORTAL_WRITES: &[(u16, &[u16])] = &[(0x0212, &[0x0720])];
+
 const THIEVES_TOWN_WRITES: &[(u16, &[u16])] = &[
     (0x0E15, &[0x0D3E]),
     (0x0E16, &[0x0D40]),
@@ -402,6 +404,18 @@ const PURPLE_CHEST_RUINS_WRITES: &[(u16, &[u16])] = &[
     (0x0913, &[0x0D22]),
     (0x0914, &[0x0DA0]),
     (0x0915, &[0x0DA2]),
+];
+
+const PYRAMID_HOLE_WRITES: &[(u16, &[u16])] = &[
+    (0x0E39, &[0x03BC]),
+    (0x0E3A, &[0x03BE]),
+    (0x0E3B, &[0x03C0]),
+    (0x0E3C, &[0x043C]),
+    (0x0E3D, &[0x043E]),
+    (0x0E3E, &[0x0440]),
+    (0x0E3F, &[0x04BC]),
+    (0x0E40, &[0x04BE]),
+    (0x0E41, &[0x04C0]),
 ];
 
 const DRAINED_DAM_WRITES: &[(u16, &[u16])] = &[
@@ -1316,9 +1330,11 @@ impl<'a> Importer<'a> {
             }
             let state_layer = match parent {
                 0x02 => Some(("Lumberjack", LUMBERJACK_WRITES)),
+                0x07 => Some(("Turtle Rock Portal", TURTLE_ROCK_PORTAL_WRITES)),
                 0x18 => Some(("Bird Statue", BIRD_STATUE_WRITES)),
                 0x3B | 0x7B => Some(("Drained", DRAINED_DAM_WRITES)),
                 0x58 => Some(("Thieves' Town", THIEVES_TOWN_WRITES)),
+                0x5B => Some(("Pyramid Hole", PYRAMID_HOLE_WRITES)),
                 0x62 => Some(("Hidden Stairs", PURPLE_CHEST_RUINS_WRITES)),
                 _ => None,
             };
