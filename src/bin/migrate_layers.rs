@@ -13,6 +13,7 @@ struct Args {
 
 #[derive(Deserialize)]
 struct LegacyArea {
+    other_world_area: Option<String>,
     vanilla_map_id: Option<u8>,
     bg_color: [u8; 3],
     size: (u8, u8),
@@ -29,6 +30,8 @@ struct LegacyScreen {
 
 #[derive(Serialize)]
 struct Area {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    other_world_area: Option<String>,
     vanilla_map_id: Option<u8>,
     bg_color: [u8; 3],
     size: (u8, u8),
@@ -120,6 +123,7 @@ fn main() -> Result<()> {
             });
         }
         let area = Area {
+            other_world_area: legacy.other_world_area,
             vanilla_map_id: legacy.vanilla_map_id,
             bg_color: legacy.bg_color,
             size: legacy.size,

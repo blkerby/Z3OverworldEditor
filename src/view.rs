@@ -126,6 +126,11 @@ pub fn help_view(_state: &EditorState) -> Element<'_, Message> {
         ("v", "Vertical flip", "flip selection horizontally"),
         ("t", "Tileset view", "show palettes/tilesets in side panel"),
         ("a", "Area view", "show secondary area in side panel"),
+        (
+            "w",
+            "Switch world",
+            "switch focused area to its other-world pair",
+        ),
         ("-", "Zoom out", "zoom out area views"),
         ("=", "Zoom in", "zoom in area views"),
         ("Ctrl", "Identify", "highlight uses of selected tile/color"),

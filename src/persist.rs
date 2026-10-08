@@ -304,6 +304,8 @@ pub fn load_area_list(state: &mut EditorState) -> Result<()> {
 
 #[derive(Serialize, Deserialize)]
 struct StoredArea {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    other_world_area: Option<String>,
     vanilla_map_id: Option<u8>,
     bg_color: [u8; 3],
     #[serde(default)]
@@ -442,6 +444,7 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
         name: area_id.area.clone(),
         theme: area_id.theme.clone(),
         vanilla_map_id: stored.vanilla_map_id,
+        other_world_area: stored.other_world_area,
         bg_color: stored.bg_color,
         bg_layering: stored.bg_layering,
         bg_camera_follow_x: stored.bg_camera_follow_x,
@@ -610,6 +613,7 @@ pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
         });
     }
     let stored = StoredArea {
+        other_world_area: area.other_world_area.clone(),
         vanilla_map_id: area.vanilla_map_id,
         bg_color: area.bg_color,
         bg_layering: area.bg_layering,
@@ -670,7 +674,31 @@ pub fn copy_area_theme(
     Ok(())
 }
 
+fn update_other_world_references(
+    state: &mut EditorState,
+    old_name: &str,
+    new_name: Option<&str>,
+) -> Result<()> {
+    let pattern = format!("{}/*/*.json", get_area_dir(state)?.display());
+    for entry in glob::glob(&pattern)? {
+        let path = entry?;
+        let mut stored: StoredArea = load_json(&path)?;
+        if stored.other_world_area.as_deref() == Some(old_name) {
+            stored.other_world_area = new_name.map(str::to_owned);
+            save_json(&path, &stored)?;
+        }
+    }
+    for area in state.areas.values_mut() {
+        if area.other_world_area.as_deref() == Some(old_name) {
+            area.other_world_area = new_name.map(str::to_owned);
+            area.modified = true;
+        }
+    }
+    Ok(())
+}
+
 pub fn rename_area(state: &mut EditorState, old_name: &str, new_name: &str) -> Result<()> {
+    save_project(state)?;
     let old_area_path = get_area_dir(state)?.join(old_name);
     let new_area_path = get_area_dir(state)?.join(new_name);
     info!(
@@ -679,6 +707,7 @@ pub fn rename_area(state: &mut EditorState, old_name: &str, new_name: &str) -> R
         new_area_path.display()
     );
     state.disable_watch_file_changes()?;
+    update_other_world_references(state, old_name, Some(new_name))?;
     std::fs::rename(old_area_path, new_area_path)?;
     state.enable_watch_file_changes()?;
     let keys: Vec<AreaId> = state
@@ -717,6 +746,7 @@ pub fn delete_area(state: &mut EditorState, name: &str) -> Result<()> {
     let area_path = get_area_dir(state)?.join(name);
     info!("Deleting {}", area_path.display());
     state.disable_watch_file_changes()?;
+    update_other_world_references(state, name, None)?;
     std::fs::remove_dir_all(area_path)?;
     state.enable_watch_file_changes()?;
     let keys: Vec<AreaId> = state

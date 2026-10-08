@@ -1013,7 +1013,22 @@ impl<'a> Importer<'a> {
             if self.map_parents[parent] as usize != parent {
                 continue;
             }
-            let world_idx = parent / 64;
+            self.area_name_by_map_id
+                .entry(parent as u8)
+                .or_insert_with(|| {
+                    let world = match parent / 64 {
+                        0 => "Light World",
+                        1 => "Dark World",
+                        _ => "Special World",
+                    };
+                    format!("{:02X} {}", parent, world)
+                });
+        }
+
+        for parent in 0..=0x81 {
+            if self.map_parents[parent] as usize != parent {
+                continue;
+            }
             let _block_y = (parent / 8) % 8;
             let block_x = parent % 8;
             let size = if block_x <= 6 && self.map_parents[parent + 1] as usize == parent {
@@ -1053,14 +1068,13 @@ impl<'a> Importer<'a> {
                 }
             };
 
-            let area_name = match self.area_name_by_map_id.get(&(parent as u8)) {
-                Some(name) => name.clone(),
-                None => match world_idx {
-                    0 => format!("{:02X} Light World", parent),
-                    1 => format!("{:02X} Dark World", parent),
-                    2 => format!("{:02X} Special World", parent),
-                    _ => bail!("unexpected world_idx: {}", world_idx),
-                },
+            let area_name = self.area_name_by_map_id[&(parent as u8)].clone();
+            let other_world_area = if parent < 0x80 {
+                self.area_name_by_map_id
+                    .get(&(parent as u8 ^ 0x40))
+                    .cloned()
+            } else {
+                None
             };
             let overlays: &[(usize, &str)] = match parent {
                 0x00 => &[(0x9D, "Woods Fog"), (0x9E, "Woods Clear")],
@@ -1095,6 +1109,7 @@ impl<'a> Importer<'a> {
                 name: area_name,
                 theme: self.theme.clone(),
                 vanilla_map_id: Some(parent as u8),
+                other_world_area,
                 bg_color,
                 bg_layering,
                 bg_camera_follow_x,

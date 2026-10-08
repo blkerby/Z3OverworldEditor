@@ -556,6 +556,25 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         "a" => {
                             state.side_panel_view = SidePanelView::Area;
                         }
+                        "w" if !modifiers.alt()
+                            && !modifiers.logo()
+                            && state.dialogue.is_none()
+                            && !state.dynamic_tiles_open =>
+                        {
+                            match state.focus {
+                                Focus::Area(position)
+                                | Focus::PickArea(position)
+                                | Focus::PickTheme(position) => {
+                                    if let Some(name) = &state.area(position).other_world_area {
+                                        return Ok(Some(Task::done(Message::SelectArea(
+                                            position,
+                                            name.clone(),
+                                        ))));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                         "h" => {
                             for i in 0..state.selected_tile_block.size.1 as usize {
                                 state.selected_tile_block.placements[i].reverse();
@@ -1400,7 +1419,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             set_target_pixel(state, pal_idx, target, coords.x, coords.y, color_idx)?;
         }
         &Message::SelectArea(position, ref name) => {
-            let area_id = &state.main_area_id;
+            let area_id = state.area_id(position);
             state.switch_area(
                 position,
                 &AreaId {
@@ -1458,6 +1477,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         theme,
                         size: *size,
                         vanilla_map_id: None,
+                        other_world_area: None,
                         bg_color: state.areas[&state.main_area_id].bg_color,
                         bg_layering: BackgroundLayering::None,
                         bg_camera_follow_x: 1.0,
