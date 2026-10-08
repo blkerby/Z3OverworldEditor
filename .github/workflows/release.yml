@@ -27,7 +27,6 @@ jobs:
         uses: ./ci/rust-build.action
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUST_TOOLCHAIN: 1.95.0
           BINARIES: "z3_overworld_editor"
         with:
           RUSTTARGET: ${{ matrix.target }}
