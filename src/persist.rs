@@ -3,6 +3,7 @@ use std::{
     io::BufWriter,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    thread,
 };
 
 use anyhow::{bail, Context, Result};
@@ -10,6 +11,7 @@ use hashbrown::{HashMap, HashSet};
 use json_pretty_compact::PrettyCompactFormatter;
 use log::info;
 use notify::{recommended_watcher, EventHandler};
+use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Serializer;
 
@@ -122,7 +124,60 @@ fn save_dynamic_tiles(state: &mut EditorState) -> Result<()> {
     Ok(())
 }
 
-fn save_palette_colors_png(png_path: &Path, palette: &Palette) -> Result<()> {
+const MAX_PNG_WORKERS: usize = 8;
+
+struct PngExport {
+    path: PathBuf,
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
+
+fn save_png(export: &PngExport) -> Result<()> {
+    // SNES colors have five bits per channel. Assign indices in raster order,
+    // so palette order does not depend on hashing or worker scheduling.
+    let mut lookup = [u16::MAX; 32768];
+    let mut palette = Vec::new();
+    let mut indices = Vec::with_capacity(export.data.len() / 3);
+    for pixel in export.data.chunks_exact(3) {
+        let key = ((pixel[0] as usize >> 3) << 10)
+            | ((pixel[1] as usize >> 3) << 5)
+            | (pixel[2] as usize >> 3);
+        let mut index = lookup[key];
+        if index == u16::MAX {
+            if palette.len() == 256 * 3 {
+                break;
+            }
+            index = (palette.len() / 3) as u16;
+            lookup[key] = index;
+            palette.extend_from_slice(pixel);
+        }
+        indices.push(index as u8);
+    }
+    let indexed = indices.len() == export.data.len() / 3;
+    fs::create_dir_all(export.path.parent().context("invalid PNG path")?)?;
+    let mut output = BufWriter::new(File::create(&export.path)?);
+    let mut encoder = png::Encoder::new(&mut output, export.width, export.height);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_filter(png::Filter::NoFilter);
+    encoder.set_deflate_compression(png::DeflateCompression::Level(6));
+    if indexed {
+        encoder.set_color(png::ColorType::Indexed);
+        encoder.set_palette(palette);
+    } else {
+        encoder.set_color(png::ColorType::Rgb);
+    }
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(if indexed { &indices } else { &export.data })?;
+    writer.finish()?;
+    Ok(())
+}
+
+fn save_pngs(exports: &[PngExport], workers: &rayon::ThreadPool) -> Result<()> {
+    workers.install(|| exports.par_iter().try_for_each(save_png))
+}
+
+fn render_palette_colors_png(png_path: &Path, palette: &Palette) -> PngExport {
     let pixel_size = 32;
     let color_bytes: Vec<[u8; 3]> = palette
         .colors
@@ -139,19 +194,15 @@ fn save_palette_colors_png(png_path: &Path, palette: &Palette) -> Result<()> {
         }
     }
 
-    let path = Path::new(png_path);
-    let file = File::create(path).unwrap();
-    let w = &mut BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, 16 * pixel_size as u32, pixel_size as u32);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(&data).unwrap();
-
-    Ok(())
+    PngExport {
+        path: png_path.to_owned(),
+        width: 16 * pixel_size as u32,
+        height: pixel_size as u32,
+        data,
+    }
 }
 
-fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
+fn render_palette_tiles_png(png_path: &Path, palette: &Palette) -> PngExport {
     let color_bytes: Vec<[u8; 3]> = palette
         .colors
         .iter()
@@ -173,7 +224,7 @@ fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
             let pixel_y = y / pixel_size % 8;
             let tile_idx = tile_y * num_cols + tile_x;
             if tile_idx >= tiles.len() {
-                data.extend([0, 0, 0, 0]);
+                data.extend([0, 0, 0]);
                 continue;
             }
             let tile = &palette.tiles[tile_idx];
@@ -183,20 +234,12 @@ fn save_palette_tiles_png(png_path: &Path, palette: &Palette) -> Result<()> {
         }
     }
 
-    let path = Path::new(png_path);
-    let file = File::create(path).unwrap();
-    let w = &mut BufWriter::new(file);
-    let mut encoder = png::Encoder::new(
-        w,
-        num_cols as u32 * 8 * pixel_size as u32,
-        num_rows as u32 * 8 * pixel_size as u32,
-    );
-    encoder.set_color(png::ColorType::Rgb);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(&data).unwrap();
-
-    Ok(())
+    PngExport {
+        path: png_path.to_owned(),
+        width: num_cols as u32 * 8 * pixel_size as u32,
+        height: num_rows as u32 * 8 * pixel_size as u32,
+        data,
+    }
 }
 
 pub fn clear_pngs(state: &EditorState) -> Result<()> {
@@ -229,11 +272,11 @@ pub fn save_palettes(state: &mut EditorState) -> Result<()> {
 
             let pal_colors_png_filename = format!("{}-colors.png", pal.name);
             let pal_colors_png_path = pal_dir.join(pal_colors_png_filename);
-            save_palette_colors_png(&pal_colors_png_path, pal)?;
 
             let pal_tiles_png_filename = format!("{}-tiles.png", pal.name);
             let pal_tiles_png_path = pal_dir.join(pal_tiles_png_filename);
-            save_palette_tiles_png(&pal_tiles_png_path, pal)?;
+            save_png(&render_palette_colors_png(&pal_colors_png_path, pal))?;
+            save_png(&render_palette_tiles_png(&pal_tiles_png_path, pal))?;
 
             pal.modified = false;
         }
@@ -456,7 +499,7 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
     })
 }
 
-fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Result<()> {
+fn render_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Result<PngExport> {
     let mut color_bytes: Vec<Vec<[u8; 3]>> = vec![];
     let area = &state.areas[area_id];
     let layer = &area.layers[layer_idx];
@@ -472,8 +515,8 @@ fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Re
     let num_cols = area.size.0 as usize * 256;
     let num_rows = area.size.1 as usize * 256;
     let [r, g, b] = area.bg_color.map(scale_color);
-    let mut data = [r, g, b, 255].repeat(num_rows * num_cols);
-    let col_stride = 4;
+    let mut data = [r, g, b].repeat(num_rows * num_cols);
+    let col_stride = 3;
     let row_stride = num_cols * col_stride;
     for (ty, row) in layer.tiles.iter().enumerate() {
         for (tx, placement) in row.iter().enumerate() {
@@ -497,9 +540,8 @@ fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Re
                     let color_idx = tile.pixels[py][px];
                     if color_idx != 0 {
                         data[addr..addr + 3].copy_from_slice(&cb[color_idx as usize]);
-                        data[addr + 3] = 255;
                     }
-                    addr += 4;
+                    addr += col_stride;
                 }
                 tile_addr += row_stride;
             }
@@ -510,16 +552,12 @@ fn save_layer_png(state: &EditorState, area_id: &AreaId, layer_idx: usize) -> Re
         .join(&area.name)
         .join(&area.theme)
         .join(format!("{}.png", layer.name));
-    fs::create_dir_all(area_png_path.parent().context("invalid PNG path")?)?;
-    let file = File::create(&area_png_path).unwrap();
-    let w = &mut BufWriter::new(file);
-    let mut encoder = png::Encoder::new(w, num_cols as u32, num_rows as u32);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    writer.write_image_data(&data).unwrap();
-
-    Ok(())
+    Ok(PngExport {
+        path: area_png_path,
+        width: num_cols as u32,
+        height: num_rows as u32,
+        data,
+    })
 }
 
 pub fn delete_layer_png(state: &mut EditorState, area_id: &AreaId, name: &str) -> Result<()> {
@@ -540,12 +578,62 @@ pub fn delete_layer_png(state: &mut EditorState, area_id: &AreaId, name: &str) -
 
 pub fn save_area_png(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
     for layer_idx in 0..state.areas[area_id].layers.len() {
-        save_layer_png(state, area_id, layer_idx)?;
+        save_png(&render_layer_png(state, area_id, layer_idx)?)?;
     }
     for layer in &mut state.areas.get_mut(area_id).unwrap().layers {
         layer.modified = false;
     }
     Ok(())
+}
+
+pub fn rebuild_pngs(state: &mut EditorState) -> Result<()> {
+    let worker_count = thread::available_parallelism()
+        .map_or(1, |count| count.get())
+        .min(MAX_PNG_WORKERS);
+    // Reuse workers across batches, then release them when this rebuild returns.
+    let workers = rayon::ThreadPoolBuilder::new()
+        .num_threads(worker_count)
+        .build()?;
+    state.disable_watch_file_changes()?;
+    let result = (|| {
+        clear_pngs(state)?;
+        let mut exports = Vec::new();
+        for theme in &state.theme_names.clone() {
+            for area_name in &state.area_names.clone() {
+                let area_id = AreaId {
+                    theme: theme.clone(),
+                    area: area_name.clone(),
+                };
+                let loaded = state.areas.contains_key(&area_id);
+                if !loaded {
+                    state.load_area(&area_id)?;
+                }
+                for layer_idx in 0..state.areas[&area_id].layers.len() {
+                    exports.push(render_layer_png(state, &area_id, layer_idx)?);
+                    // Keep rendering memory bounded while encoding independent files.
+                    if exports.len() == MAX_PNG_WORKERS {
+                        save_pngs(&exports, &workers)?;
+                        exports.clear();
+                    }
+                }
+                if !loaded {
+                    state.areas.remove(&area_id);
+                }
+            }
+        }
+        save_pngs(&exports, &workers)?;
+        for area in state.areas.values_mut() {
+            for layer in &mut area.layers {
+                layer.modified = false;
+            }
+        }
+        for palette in &mut state.palettes {
+            palette.modified = true;
+        }
+        save_palettes(state)
+    })();
+    state.enable_watch_file_changes()?;
+    result
 }
 
 pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
@@ -642,7 +730,7 @@ pub fn save_area(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
             save_area_json(state, area_id)?;
         }
         for layer_idx in modified_layers.iter().copied() {
-            save_layer_png(state, area_id, layer_idx)?;
+            save_png(&render_layer_png(state, area_id, layer_idx)?)?;
         }
         state.enable_watch_file_changes()?;
         let area = state.areas.get_mut(area_id).unwrap();

@@ -9,9 +9,8 @@ use crate::{
     import::Importer,
     message::{Message, SelectionSource},
     persist::{
-        self, clear_pngs, copy_area_theme, delete_area, delete_area_theme, delete_layer_png,
-        delete_palette, load_area_list, remap_tiles, rename_area, rename_area_theme, save_area,
-        save_area_png, save_palettes, scan_used_tiles,
+        self, copy_area_theme, delete_area, delete_area_theme, delete_layer_png, delete_palette,
+        load_area_list, remap_tiles, rename_area, rename_area_theme, save_area, scan_used_tiles,
     },
     state::{
         is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx,
@@ -644,30 +643,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             return Ok(Some(Task::done(Message::RebuildProject)));
         }
         Message::RebuildProject => {
-            // Save all area PNGs (which could be out-of-date, e.g. if a palette were updated or a new theme created)
-            // Also save all palettes.
-            state.disable_watch_file_changes()?;
-            clear_pngs(state)?;
-            for theme in &state.theme_names.clone() {
-                for area_name in &state.area_names.clone() {
-                    let area_id = AreaId {
-                        theme: theme.clone(),
-                        area: area_name.clone(),
-                    };
-                    if state.areas.contains_key(&area_id) {
-                        save_area_png(state, &area_id)?;
-                    } else {
-                        state.load_area(&area_id)?;
-                        save_area_png(state, &area_id)?;
-                        state.areas.remove(&area_id);
-                    }
-                }
-            }
-            for pal in &mut state.palettes {
-                pal.modified = true;
-            }
-            save_palettes(state)?;
-            state.enable_watch_file_changes()?;
+            persist::rebuild_pngs(state)?;
             state.dialogue = None;
         }
         &Message::WindowClose(id) => {
