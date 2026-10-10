@@ -764,6 +764,11 @@ impl EditorState {
     }
 
     pub fn enable_watch_file_changes(&mut self) -> Result<()> {
+        if self.watcher.is_none() && !self.watch_paths.is_empty() {
+            self.watcher = Some(persist::create_file_watcher(
+                self.files_modified_notification.clone(),
+            )?);
+        }
         if let Some(watcher) = &mut self.watcher {
             if !self.watch_enabled {
                 for p in &self.watch_paths {
@@ -778,13 +783,27 @@ impl EditorState {
     }
 
     pub fn disable_watch_file_changes(&mut self) -> Result<()> {
+        if !self.watch_enabled {
+            return Ok(());
+        }
+        self.watch_enabled = false;
+        let mut reset_watcher = false;
         if let Some(watcher) = &mut self.watcher {
-            self.watch_enabled = false;
             for p in &self.watch_paths {
                 if let Err(e) = watcher.unwatch(p) {
-                    info!("Unable to unwatch path {}: {}", p.display(), e);
+                    info!(
+                        "Unable to unwatch path {}: {}; resetting watcher",
+                        p.display(),
+                        e
+                    );
+                    reset_watcher = true;
+                    break;
                 }
             }
+        }
+        if reset_watcher {
+            // Discard partially removed watches; enable will create a fresh watcher.
+            self.watcher = None;
         }
         Ok(())
     }

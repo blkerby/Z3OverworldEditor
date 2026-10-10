@@ -259,7 +259,11 @@ pub fn clear_pngs(state: &EditorState) -> Result<()> {
 }
 
 pub fn save_palettes(state: &mut EditorState) -> Result<()> {
+    if !state.palettes.iter().any(|palette| palette.modified) {
+        return Ok(());
+    }
     let pal_dir = get_palette_dir(state)?;
+    let watch_was_enabled = state.watch_enabled;
     state.disable_watch_file_changes()?;
     for pal in &mut state.palettes {
         if pal.modified {
@@ -281,7 +285,9 @@ pub fn save_palettes(state: &mut EditorState) -> Result<()> {
             pal.modified = false;
         }
     }
-    state.enable_watch_file_changes()?;
+    if watch_was_enabled {
+        state.enable_watch_file_changes()?;
+    }
     Ok(())
 }
 
@@ -1006,6 +1012,12 @@ impl EventHandler for FileModificationHandler {
     }
 }
 
+pub(crate) fn create_file_watcher(
+    modified: Arc<Mutex<bool>>,
+) -> Result<notify::RecommendedWatcher> {
+    Ok(recommended_watcher(FileModificationHandler::new(modified))?)
+}
+
 pub fn load_project(state: &mut EditorState) -> Result<()> {
     if state.global_config.project_dir.is_none() {
         bail!("Project directory not set");
@@ -1022,9 +1034,9 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state
         .watch_paths
         .push(state.global_config.project_dir.as_ref().unwrap().clone());
-    state.watcher = Some(recommended_watcher(FileModificationHandler::new(
+    state.watcher = Some(create_file_watcher(
         state.files_modified_notification.clone(),
-    ))?);
+    )?);
     state.watch_enabled = false;
     state.enable_watch_file_changes()?;
 
