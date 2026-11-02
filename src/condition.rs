@@ -75,6 +75,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary(&mut self) -> Result<bool> {
+        if self.consume("!") {
+            return Ok(!self.parse_primary()?);
+        }
         if self.consume("(") {
             let value = self.parse_or()?;
             if !self.consume(")") {
