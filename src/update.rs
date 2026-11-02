@@ -1462,7 +1462,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         bg_camera_drift_y: 0.0,
                         layers: vec![Layer {
                             modified: true,
-                            condition: "on".to_string(),
+                            condition: "true".to_string(),
                             name: "Main".to_string(),
                             background: Background::Bg2,
                             tiles: vec![
@@ -1700,7 +1700,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 layer_idx,
                 Layer {
                     modified: true,
-                    condition: "on".to_string(),
+                    condition: "true".to_string(),
                     name,
                     background: Background::Bg2,
                     tiles: vec![vec![None; area.size.0 as usize * 32]; area.size.1 as usize * 32],

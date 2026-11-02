@@ -889,7 +889,7 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
             size: (2, 2),
             layers: vec![Layer {
                 modified: true,
-                condition: "on".to_string(),
+                condition: "true".to_string(),
                 name: "Main".to_string(),
                 background: Background::Bg2,
                 tiles: vec![vec![Some(TilePlacement::default()); 64]; 64],

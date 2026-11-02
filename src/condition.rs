@@ -84,8 +84,8 @@ impl<'a> Parser<'a> {
         }
         let slot = self.parse_name()?;
         match slot {
-            "on" => return Ok(true),
-            "off" => return Ok(false),
+            "true" => return Ok(true),
+            "false" => return Ok(false),
             _ => {}
         }
         let slot = if let Some(target) = self.slot_aliases.get(slot) {
