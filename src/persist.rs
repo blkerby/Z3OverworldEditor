@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
     io::BufWriter,
     path::{Path, PathBuf},
@@ -1025,6 +1026,8 @@ pub(crate) fn create_file_watcher(
 #[derive(Deserialize)]
 struct StoredConditions {
     edge_variants: Vec<String>,
+    edge_variant_aliases: BTreeMap<String, Vec<String>>,
+    slot_aliases: BTreeMap<String, String>,
 }
 
 pub fn load_project(state: &mut EditorState) -> Result<()> {
@@ -1051,6 +1054,8 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
 
     let conditions: StoredConditions = load_json(&get_project_dir(state)?.join("conditions.json"))?;
     state.edge_variants = conditions.edge_variants;
+    state.edge_variant_aliases = conditions.edge_variant_aliases;
+    state.slot_aliases = conditions.slot_aliases;
     load_palettes(state)?;
     load_dynamic_tiles(state)?;
     load_area_list(state)?;

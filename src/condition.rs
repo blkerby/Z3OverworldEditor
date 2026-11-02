@@ -1,14 +1,20 @@
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Result};
 
 pub fn evaluate_condition(
     condition: &str,
     edges: &[(String, String)],
     variants: &[String],
+    aliases: &BTreeMap<String, Vec<String>>,
+    slot_aliases: &BTreeMap<String, String>,
 ) -> Result<bool> {
     let mut parser = Parser {
         remaining: condition.trim(),
         edges,
         variants,
+        aliases,
+        slot_aliases,
     };
     let value = parser.parse_or()?;
     if !parser.remaining.trim().is_empty() {
@@ -21,6 +27,8 @@ struct Parser<'a> {
     remaining: &'a str,
     edges: &'a [(String, String)],
     variants: &'a [String],
+    aliases: &'a BTreeMap<String, Vec<String>>,
+    slot_aliases: &'a BTreeMap<String, String>,
 }
 
 impl<'a> Parser<'a> {
@@ -80,6 +88,14 @@ impl<'a> Parser<'a> {
             "off" => return Ok(false),
             _ => {}
         }
+        let slot = if let Some(target) = self.slot_aliases.get(slot) {
+            if self.edges.iter().any(|(name, _)| name == slot) {
+                bail!("Ambiguous slot name: {slot} is both a slot and an alias");
+            }
+            target.as_str()
+        } else {
+            slot
+        };
         let Some((_, selected)) = self.edges.iter().find(|(name, _)| name == slot) else {
             bail!("Unknown edge slot: {slot}");
         };
@@ -88,11 +104,23 @@ impl<'a> Parser<'a> {
         }
         let mut matches = false;
         loop {
-            let variant = self.parse_name()?;
-            if !self.variants.iter().any(|name| name == variant) {
-                bail!("Unknown edge variant: {variant}");
+            let name = self.parse_name()?;
+            if let Some(variants) = self.aliases.get(name) {
+                if self.variants.iter().any(|variant| variant == name) {
+                    bail!("Ambiguous edge name: {name} is both a variant and an alias");
+                }
+                for variant in variants {
+                    if !self.variants.contains(variant) {
+                        bail!("Unknown edge variant {variant} in alias {name}");
+                    }
+                    matches |= selected == variant;
+                }
+            } else {
+                if !self.variants.iter().any(|variant| variant == name) {
+                    bail!("Unknown edge variant or alias: {name}");
+                }
+                matches |= selected == name;
             }
-            matches |= selected == variant;
             if !self.consume(",") {
                 break;
             }

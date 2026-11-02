@@ -941,6 +941,8 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
         &layers[selected].condition,
         &state.preview_edges,
         &state.edge_variants,
+        &state.edge_variant_aliases,
+        &state.slot_aliases,
     ) {
         condition_controls = condition_controls.push(
             text(format!("Warning: {error}."))

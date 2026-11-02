@@ -4,6 +4,7 @@ use log::info;
 use notify::Watcher;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -589,6 +590,8 @@ pub struct EditorState {
     pub palettes: Vec<Palette>,
     pub dynamic_tiles: DynamicTiles,
     pub edge_variants: Vec<String>,
+    pub edge_variant_aliases: BTreeMap<String, Vec<String>>,
+    pub slot_aliases: BTreeMap<String, String>,
     pub areas: HashMap<AreaId, Area>,
     pub area_names: Vec<AreaName>,
     pub theme_names: Vec<ThemeName>,
@@ -753,6 +756,8 @@ impl EditorState {
                 &layer.condition,
                 &self.preview_edges,
                 &self.edge_variants,
+                &self.edge_variant_aliases,
+                &self.slot_aliases,
             ) {
                 *visible = value;
             }
@@ -925,6 +930,8 @@ pub fn get_initial_state() -> Result<EditorState> {
         palettes: vec![],
         dynamic_tiles: DynamicTiles::default(),
         edge_variants: vec![],
+        edge_variant_aliases: BTreeMap::new(),
+        slot_aliases: BTreeMap::new(),
         areas: HashMap::new(),
         main_area_id: AreaId {
             area: "Example".to_string(),
