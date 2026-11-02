@@ -414,6 +414,7 @@ pub fn is_valid_layer_name(name: &str) -> bool {
 #[derive(Clone, Debug)]
 pub struct Layer {
     pub modified: bool,
+    pub condition: String,
     pub name: String,
     pub background: Background,
     pub tiles: Vec<Vec<Option<TilePlacement>>>,
@@ -587,6 +588,7 @@ pub struct EditorState {
     // to limit memory usage and start-up time. Everything else is fully loaded.
     pub palettes: Vec<Palette>,
     pub dynamic_tiles: DynamicTiles,
+    pub edge_variants: Vec<String>,
     pub areas: HashMap<AreaId, Area>,
     pub area_names: Vec<AreaName>,
     pub theme_names: Vec<ThemeName>,
@@ -636,6 +638,10 @@ pub struct EditorState {
     pub side_layer_idx: usize,
     pub visible_layers: Vec<bool>,
     pub layer_drawer_open: bool,
+    pub edge_preview_open: bool,
+    pub preview_conditions: bool,
+    pub preview_edges: Vec<(String, String)>,
+    pub preview_visible_layers: Vec<bool>,
 
     // Filesystem watch (to detect externa modifications)
     pub watcher: Option<notify::RecommendedWatcher>,
@@ -704,6 +710,7 @@ impl EditorState {
             .position(|layer| layer.background == Background::Bg2)
             .unwrap_or(0);
         let layer_count = area.layers.len();
+        let size = area.size;
         match position {
             AreaPosition::Main => {
                 self.main_layer_idx = bg2;
@@ -712,8 +719,43 @@ impl EditorState {
                     self.visible_layers[bg1] = true;
                 }
                 self.visible_layers[bg2] = true;
+                self.preview_visible_layers = self.visible_layers.clone();
+                self.preview_edges.clear();
+                for (direction, length) in [
+                    ("north", size.0),
+                    ("south", size.0),
+                    ("east", size.1),
+                    ("west", size.1),
+                ] {
+                    let segments = length.div_ceil(2);
+                    for segment in 1..=segments {
+                        let slot = if segments == 1 {
+                            direction.to_string()
+                        } else {
+                            format!("{direction}-{segment}")
+                        };
+                        self.preview_edges.push((slot, "closed".to_string()));
+                    }
+                }
+                self.apply_condition_preview();
             }
             AreaPosition::Side => self.side_layer_idx = bg2,
+        }
+    }
+
+    pub fn apply_condition_preview(&mut self) {
+        if !self.preview_conditions {
+            return;
+        }
+        let area = &self.areas[&self.main_area_id];
+        for (layer, visible) in area.layers.iter().zip(&mut self.preview_visible_layers) {
+            if let Ok(value) = crate::condition::evaluate_condition(
+                &layer.condition,
+                &self.preview_edges,
+                &self.edge_variants,
+            ) {
+                *visible = value;
+            }
         }
     }
 
@@ -728,6 +770,7 @@ impl EditorState {
                 self.side_area_id = id;
             }
         }
+        self.reset_layer_state(position);
         self.cleanup_areas()?;
         Ok(())
     }
@@ -841,6 +884,7 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
             size: (2, 2),
             layers: vec![Layer {
                 modified: true,
+                condition: "on".to_string(),
                 name: "Main".to_string(),
                 background: Background::Bg2,
                 tiles: vec![vec![Some(TilePlacement::default()); 64]; 64],
@@ -880,6 +924,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         rom_path: None,
         palettes: vec![],
         dynamic_tiles: DynamicTiles::default(),
+        edge_variants: vec![],
         areas: HashMap::new(),
         main_area_id: AreaId {
             area: "Example".to_string(),
@@ -918,6 +963,10 @@ pub fn get_initial_state() -> Result<EditorState> {
         side_layer_idx: 0,
         visible_layers: vec![],
         layer_drawer_open: false,
+        edge_preview_open: false,
+        preview_conditions: false,
+        preview_edges: vec![],
+        preview_visible_layers: vec![],
         pixel_coords: None,
         pixel_target: None,
         watcher: None,

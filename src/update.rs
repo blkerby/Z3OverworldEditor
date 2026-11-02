@@ -1462,6 +1462,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         bg_camera_drift_y: 0.0,
                         layers: vec![Layer {
                             modified: true,
+                            condition: "on".to_string(),
                             name: "Main".to_string(),
                             background: Background::Bg2,
                             tiles: vec![
@@ -1632,6 +1633,26 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             )?;
         }
         Message::ToggleLayerDrawer => state.layer_drawer_open = !state.layer_drawer_open,
+        Message::ToggleEdgePreview => state.edge_preview_open = !state.edge_preview_open,
+        &Message::SetPreviewConditions(enabled) => {
+            if enabled {
+                state.preview_visible_layers = state.visible_layers.clone();
+            }
+            state.preview_conditions = enabled;
+        }
+        Message::SelectPreviewEdge(slot, variant) => {
+            state.preview_edges[*slot].1 = variant.clone();
+        }
+        Message::SetLayerCondition {
+            area_id,
+            layer_idx,
+            condition,
+        } => {
+            state.switch_area(AreaPosition::Main, area_id)?;
+            let area = state.main_area_mut();
+            area.layers[*layer_idx].condition = condition.clone();
+            area.modified = true;
+        }
         &Message::SelectLayer(position, layer_idx) => {
             if layer_idx >= state.area(position).layers.len() {
                 return Ok(None);
@@ -1639,7 +1660,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             match position {
                 AreaPosition::Main => {
                     state.main_layer_idx = layer_idx;
-                    state.visible_layers[layer_idx] = true;
+                    if !state.preview_conditions {
+                        state.visible_layers[layer_idx] = true;
+                    }
                 }
                 AreaPosition::Side => state.side_layer_idx = layer_idx,
             }
@@ -1677,6 +1700,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 layer_idx,
                 Layer {
                     modified: true,
+                    condition: "on".to_string(),
                     name,
                     background: Background::Bg2,
                     tiles: vec![vec![None; area.size.0 as usize * 32]; area.size.1 as usize * 32],
@@ -1687,6 +1711,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 AreaPosition::Main => {
                     state.main_layer_idx = layer_idx;
                     state.visible_layers.insert(layer_idx, true);
+                    state.preview_visible_layers.insert(layer_idx, true);
                     if same_side && state.side_layer_idx >= layer_idx {
                         state.side_layer_idx += 1;
                     }
@@ -1726,8 +1751,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             match position {
                 AreaPosition::Main => {
                     state.visible_layers.remove(*layer_idx);
+                    state.preview_visible_layers.remove(*layer_idx);
                     state.main_layer_idx = selected;
-                    state.visible_layers[selected] = true;
+                    if !state.preview_conditions {
+                        state.visible_layers[selected] = true;
+                    }
                     if same_side {
                         if state.side_layer_idx > *layer_idx {
                             state.side_layer_idx -= 1;
@@ -1756,6 +1784,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             match position {
                 AreaPosition::Main => {
                     state.visible_layers.insert(layer_idx, true);
+                    state.preview_visible_layers.insert(layer_idx, true);
                     state.main_layer_idx = layer_idx;
                     if same_side && state.side_layer_idx >= layer_idx {
                         state.side_layer_idx += 1;
@@ -1783,6 +1812,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 AreaPosition::Main => {
                     let visible = state.visible_layers.remove(*layer_idx);
                     state.visible_layers.insert(*new_idx, visible);
+                    let preview_visible = state.preview_visible_layers.remove(*layer_idx);
+                    state
+                        .preview_visible_layers
+                        .insert(*new_idx, preview_visible);
                     state.main_layer_idx = *new_idx;
                     if same_side {
                         if state.side_layer_idx == *layer_idx {
@@ -2257,6 +2290,18 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 dst_selection: dst_selection.clone(),
             });
         }
+    }
+    if matches!(
+        message,
+        Message::SetPreviewConditions(_)
+            | Message::SelectPreviewEdge(_, _)
+            | Message::SetLayerCondition { .. }
+            | Message::AddLayer(_)
+            | Message::DeleteLayer { .. }
+            | Message::RestoreLayer { .. }
+            | Message::MoveLayer { .. }
+    ) {
+        state.apply_condition_preview();
     }
     Ok(Some(Task::none()))
 }

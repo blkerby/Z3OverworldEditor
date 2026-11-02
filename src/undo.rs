@@ -444,6 +444,16 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
             layer_idx: *new_idx,
             new_idx: *layer_idx,
         }),
+        Message::ToggleEdgePreview
+        | Message::SetPreviewConditions(_)
+        | Message::SelectPreviewEdge(_, _) => UndoAction::None,
+        Message::SetLayerCondition {
+            area_id, layer_idx, ..
+        } => UndoAction::Ok(Message::SetLayerCondition {
+            area_id: area_id.clone(),
+            layer_idx: *layer_idx,
+            condition: state.areas[area_id].layers[*layer_idx].condition.clone(),
+        }),
         Message::RenameLayer {
             position,
             area_id,

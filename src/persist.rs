@@ -378,6 +378,8 @@ fn default_bg_camera_follow() -> f32 {
 #[derive(Serialize, Deserialize)]
 struct StoredLayer {
     name: String,
+    #[serde(default)]
+    condition: String,
     background: Background,
     screens: Vec<StoredScreen>,
 }
@@ -477,6 +479,7 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
         layers.push(Layer {
             modified: false,
             name: stored_layer.name,
+            condition: stored_layer.condition,
             background: stored_layer.background,
             tiles,
         });
@@ -702,6 +705,7 @@ pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
         }
         stored_layers.push(StoredLayer {
             name: layer.name.clone(),
+            condition: layer.condition.clone(),
             background: layer.background,
             screens,
         });
@@ -1018,6 +1022,11 @@ pub(crate) fn create_file_watcher(
     Ok(recommended_watcher(FileModificationHandler::new(modified))?)
 }
 
+#[derive(Deserialize)]
+struct StoredConditions {
+    edge_variants: Vec<String>,
+}
+
 pub fn load_project(state: &mut EditorState) -> Result<()> {
     if state.global_config.project_dir.is_none() {
         bail!("Project directory not set");
@@ -1040,6 +1049,8 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.watch_enabled = false;
     state.enable_watch_file_changes()?;
 
+    let conditions: StoredConditions = load_json(&get_project_dir(state)?.join("conditions.json"))?;
+    state.edge_variants = conditions.edge_variants;
     load_palettes(state)?;
     load_dynamic_tiles(state)?;
     load_area_list(state)?;

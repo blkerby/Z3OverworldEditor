@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use animated_tiles::animated_tiles_view;
 use area::{
     add_area_view, add_theme_view, area_grid_view, delete_area_view, delete_theme_view,
-    edit_area_view, layer_drawer_view, main_area_controls, rename_theme_view, side_area_controls,
+    edge_preview_view, edit_area_view, layer_drawer_view, main_area_controls, rename_theme_view,
+    side_area_controls,
 };
 use dynamic_tiles::dynamic_tiles_view;
 use graphics::graphics_view;
@@ -272,23 +273,20 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
         return Space::new(Length::Fill, Length::Fill).into();
     }
 
-    let main_panel: Element<Message> = column![
-        row![
-            button(text("\u{F3E2}").font(iced_fonts::BOOTSTRAP_FONT))
-                .style(button::secondary)
-                .on_press(Message::SettingsDialogue),
-            main_area_controls(state),
-            horizontal_space(),
-            button(text("\u{F505}").font(iced_fonts::BOOTSTRAP_FONT))
-                .style(button::secondary)
-                .on_press(Message::HelpDialogue),
-        ]
-        .spacing(10),
-        area_grid_view(state, AreaPosition::Main),
+    let toolbar = row![
+        button(text("\u{F3E2}").font(iced_fonts::BOOTSTRAP_FONT))
+            .style(button::secondary)
+            .on_press(Message::SettingsDialogue),
+        main_area_controls(state),
+        horizontal_space(),
+        button(text("\u{F505}").font(iced_fonts::BOOTSTRAP_FONT))
+            .style(button::secondary)
+            .on_press(Message::HelpDialogue),
     ]
     .padding(10)
-    .spacing(10)
-    .into();
+    .spacing(10);
+
+    let main_panel = container(area_grid_view(state, AreaPosition::Main)).padding(10);
 
     let side_panel: Element<Message> = match state.side_panel_view {
         SidePanelView::Tileset => column![
@@ -316,17 +314,25 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
             .push(layer_drawer_view(state))
             .push(vertical_separator());
     }
+    if state.edge_preview_open {
+        panels = panels
+            .push(edge_preview_view(state))
+            .push(vertical_separator());
+    }
     if state.dynamic_tiles_open {
         panels = panels
             .push(dynamic_tiles_view(state))
             .push(vertical_separator());
     }
-    let mut main_view: Element<Message> = panels
-        .push(side_panel)
-        .spacing(0)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into();
+    let mut main_view: Element<Message> = column![
+        toolbar,
+        panels
+            .push(side_panel)
+            .spacing(0)
+            .width(Length::Fill)
+            .height(Length::Fill),
+    ]
+    .into();
 
     main_view = view_dialogue(state, main_view);
     main_view

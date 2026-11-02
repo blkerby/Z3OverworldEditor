@@ -1119,6 +1119,7 @@ impl<'a> Importer<'a> {
                 size: (size.0 * 2, size.1 * 2),
                 layers: vec![Layer {
                     modified: true,
+                    condition: String::new(),
                     name: "Main".to_string(),
                     background: Background::Bg2,
                     tiles: vec![
@@ -1337,6 +1338,7 @@ impl<'a> Importer<'a> {
                     area.layers.len() - 1,
                     Layer {
                         modified: true,
+                        condition: String::new(),
                         name: name.to_string(),
                         background: Background::Bg1,
                         tiles,
@@ -1371,6 +1373,7 @@ impl<'a> Importer<'a> {
                 }
                 area.layers.push(Layer {
                     modified: true,
+                    condition: String::new(),
                     name: name.to_string(),
                     background: Background::Bg2,
                     tiles,
@@ -1531,6 +1534,7 @@ impl<'a> Importer<'a> {
             };
             area.layers.push(Layer {
                 modified: true,
+                condition: String::new(),
                 name,
                 background: Background::Bg2,
                 tiles,

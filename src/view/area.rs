@@ -730,7 +730,11 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_
                 area_id: state.area_id(position).clone(),
                 area: state.area(position),
                 selected_layer_idx: state.selected_layer_idx(position),
-                visible_layers: &state.visible_layers,
+                visible_layers: if state.preview_conditions {
+                    &state.preview_visible_layers
+                } else {
+                    &state.visible_layers
+                },
                 palettes: &state.palettes,
                 palettes_id_idx_map: &state.palettes_id_idx_map,
                 pixel_size,
@@ -811,6 +815,13 @@ pub fn main_area_controls(state: &EditorState) -> Element<'_, Message> {
                 button::secondary
             })
             .on_press(Message::ToggleLayerDrawer),
+        button(text("Conditions"))
+            .style(if state.edge_preview_open {
+                button::primary
+            } else {
+                button::secondary
+            })
+            .on_press(Message::ToggleEdgePreview),
     ]
     .spacing(10)
     .clip(true)
@@ -866,6 +877,11 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
         .filter(|layer| layer.background == Background::Bg2)
         .count();
 
+    let visibility = if state.preview_conditions {
+        &state.preview_visible_layers
+    } else {
+        &state.visible_layers
+    };
     let mut list = column![];
     for (layer_idx, layer) in layers.iter().enumerate() {
         let row_button = button(text(&layer.name).width(Length::Fill))
@@ -878,8 +894,13 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
             .on_press(Message::SelectLayer(AreaPosition::Main, layer_idx));
         list = list.push(
             row![
-                checkbox("", state.visible_layers.get(layer_idx) == Some(&true))
-                    .on_toggle(move |_| Message::ToggleLayerVisibility(layer_idx)),
+                checkbox("", visibility.get(layer_idx) == Some(&true)).on_toggle_maybe(
+                    if state.preview_conditions {
+                        None
+                    } else {
+                        Some(move |_| Message::ToggleLayerVisibility(layer_idx))
+                    }
+                ),
                 row_button,
             ]
             .spacing(5)
@@ -904,6 +925,29 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
     } else {
         delete
     };
+
+    let mut condition_controls = column![
+        text("Condition"),
+        text_input("Enter condition", &layers[selected].condition).on_input(move |condition| {
+            Message::SetLayerCondition {
+                area_id: state.main_area_id.clone(),
+                layer_idx: selected,
+                condition,
+            }
+        }),
+    ]
+    .spacing(5);
+    if let Err(error) = crate::condition::evaluate_condition(
+        &layers[selected].condition,
+        &state.preview_edges,
+        &state.edge_variants,
+    ) {
+        condition_controls = condition_controls.push(
+            text(format!("Warning: {error}."))
+                .style(text::danger)
+                .size(12),
+        );
+    }
 
     container(
         column![
@@ -949,6 +993,7 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
                     background,
                 }
             ),
+            condition_controls,
         ]
         .spacing(10),
     )
@@ -956,6 +1001,33 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
     .width(260)
     .height(Length::Fill)
     .into()
+}
+
+pub fn edge_preview_view(state: &EditorState) -> Element<'_, Message> {
+    let mut controls = column![
+        checkbox("Preview conditions", state.preview_conditions)
+            .on_toggle(Message::SetPreviewConditions),
+    ]
+    .spacing(10);
+    for (idx, (slot, variant)) in state.preview_edges.iter().enumerate() {
+        controls = controls.push(
+            column![
+                text(slot),
+                pick_list(
+                    state.edge_variants.as_slice(),
+                    Some(variant),
+                    move |variant| { Message::SelectPreviewEdge(idx, variant) }
+                )
+                .width(Length::Fill),
+            ]
+            .spacing(5),
+        );
+    }
+    container(Scrollable::new(controls))
+        .padding(10)
+        .width(260)
+        .height(Length::Fill)
+        .into()
 }
 
 pub fn add_area_view(name: &str, size: (u8, u8)) -> Element<'_, Message> {
