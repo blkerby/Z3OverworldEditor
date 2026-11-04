@@ -18,7 +18,7 @@ Maintain separate light-world and dark-world map assets. For each world, support
 - A 32×28 cloud tilemap for the visible region, padded to 32×32 by the future ROM builder.
 - Room map artwork attached to the existing area/theme and layer structure.
 
-Mark map palettes as a special subset of the existing palettes. The map editing UI should select the world and distinguish terrain from cloud artwork. Show the current world's palette count out of eight, terrain tile count out of 1,024, and cloud tile count out of 256. Keep existing gameplay artwork separate from these budgets.
+Mark map palettes as a special subset of the existing palettes. Keep them selectable through the existing Palette selector alongside gameplay palettes. Show the map world's palette count out of eight, terrain tile count out of 1,024, and cloud tile count out of 256. Keep existing gameplay artwork separate from these budgets.
 
 Give each map tile a single intended-use field: Terrain or Clouds. Count every tile toward its designated budget, including unplaced tiles. These are allocation budgets calculated from tileset data alone; counting does not scan room/layer maps or cloud tilemaps. A palette may contain tiles of both kinds and still counts only once toward the shared eight-palette limit. Intended use is separate from tile priority.
 
@@ -56,6 +56,38 @@ Use the terrain tile's existing priority field to control whether it appears abo
 Future pendant/crystal sprites can use sprite priority 3 to appear above these backgrounds. Preserve the existing meaning of priority on gameplay artwork; only the map preview uses this map-specific composition.
 
 Preview only the selected room's composed map layers, responding to the existing layer and edge-condition controls. Do not add a neighboring-room arrangement or a complete reference-world preview. The cloud editor uses the terrain-footprint outline rather than assembled room artwork; generated-seed integration is deferred.
+
+## User interface
+
+### Room map in the Layers panel
+
+Keep the normal room artwork in the main area canvas. Insert the selected room's map editing canvas into the existing Layers panel below the layer list and above the layer name, background, condition, and other properties. Do not add a toolbar view selector or a separate room-map editing mode.
+
+Show the composed visible map layers in this small canvas, with painting and other edits applied to the selected layer, matching the main area's editing behavior. Layer selection, visibility, and condition previews update both canvases. Enlarge the map pixels enough to edit comfortably while fitting the 3×3 or 6×6 grid within the panel. Omit the map canvas for special-world areas.
+
+### Palettes and properties
+
+Use the existing Palette selector for both gameplay and map palettes without automatic context filtering. Extend the palette editing modal, which currently supports rename and delete, with `Map world: None / Light / Dark`; this edits `map_world`, with None meaning an ordinary gameplay palette.
+
+Keep the existing color, tileset, and pixel editors. For map tiles, expose `Map use: Terrain / Clouds` alongside the existing priority and flip constraints. Show the relevant world's allocation counts in the palette panel and update them as palette membership or tile designations change. Reuse the existing error presentation for mismatched placements.
+
+Add `World: Light / Dark / Special` to the existing area creation and editing dialogs.
+
+### Tools menu
+
+Add one `Tools` menu button to the toolbar. Normally only the button is visible; clicking it reveals the less-frequently used actions:
+
+- `Clouds…`: open cloud editing in the main area canvas.
+- `Conditions`: toggle the existing Conditions panel, replacing its standalone toolbar button.
+- `Dynamic tiles`: toggle the existing dynamic-tile editor, moving its entry out of Project Settings.
+
+Indicate open Conditions and Dynamic tiles panels with checkmarks. Close the menu after choosing an action, clicking outside, or pressing Escape. Keep Layers directly accessible on the toolbar.
+
+### Cloud editing in the main canvas
+
+Opening Clouds replaces the main area canvas with the 256×224 cloud editor. Replace the area/theme controls with `World: Light / Dark`, backdrop-color editing using the existing RGB controls, and `Back to area`. Keep the palette, tileset, and pixel editing controls available.
+
+Hide the Layers and Conditions panels while editing clouds. Returning to area editing restores the selected area, theme, layer, and prior panel state. The world selector is local to cloud editing; there is no general Area/Map/Clouds view selector.
 
 ## Persistence
 
@@ -127,7 +159,7 @@ The layout and priority ordering follow the [SNES background documentation](http
 ## Implementation sequence
 
 1. Add the area `world` field, populate existing areas, and add persistence for the map assets and per-layer map edits without modifying randomizer catalogs or ROM code.
-2. Add map palette/world selection, tile intended-use editing, and allocation budget counts, reusing the existing palette and graphics editing functionality, including tile priority.
-3. Add room map editing tied to the selected existing layer and its condition preview, with normal selection and undo operations, intended-use mismatch highlighting, and a selected-room-only composed preview.
-4. Add the two cloud tilemaps with the same mismatch highlighting, a 256×224 editable canvas, and the terrain-footprint outline underneath opaque cloud pixels.
-5. Verify save/reload, undo, palette/tile edits, allocation counts, mismatch highlighting after painting/pasting and reclassification, small/large room dimensions, selected-room layer composition, edge variants, cloud editing bounds, and outline visibility through transparent cloud pixels on a copied project. Run the editor's applicable build checks. Remove any temporary verification code before completion.
+2. Extend the palette editing modal with map-world selection, keep map palettes in the existing Palette selector, and add tile intended-use editing and allocation budget counts. Reuse the existing palette and graphics editing functionality, including tile priority, and expose world selection in the area dialogs.
+3. Add the selected room's map canvas below the Layers panel's layer list, tied to the selected layer and its condition preview, with normal selection and undo operations, intended-use mismatch highlighting, and composed visible layers.
+4. Add the Tools menu, move Conditions and Dynamic tiles into it, and open cloud editing from it in the main canvas. Add the two cloud tilemaps with mismatch highlighting, a 256×224 editable canvas, and the terrain-footprint outline underneath opaque cloud pixels. Restore the area editing context when leaving clouds.
+5. Verify save/reload, undo, palette/tile edits, allocation counts, mismatch highlighting after painting/pasting and reclassification, small/large room dimensions, selected-room layer composition, edge variants, cloud editing bounds, outline visibility through transparent cloud pixels, menu behavior, and return-to-area state on a copied project. Run the editor's applicable build checks. Remove any temporary verification code before completion.
