@@ -2,33 +2,49 @@
 
 ## Goal and scope
 
-Add editor support for creating overworld map artwork, with vanilla Mode 7 graphics available as imported starting material. Target a single, fixed, zoomed-out Mode 1 view with room-based terrain on BG1, screen-sized clouds on BG2, and pendant/crystal sprites. Defer ROM injection, runtime loading, marker implementation, and changes to the randomizer catalogs or patcher. Do not implement a zoomed-in view, zoom switching, or map scrolling.
+Add editor support for creating overworld map artwork at vanilla's scale, with imported vanilla graphics and tilemaps as starting material. Leave the runtime choice between Mode 7 and Mode 1 undecided. A Mode 1 implementation would allow scrolling to see the map and may crop the authored 512×512 extent to 384×384 or smaller; the crop and viewport are not yet decided. Defer ROM injection, runtime loading, marker implementation, and changes to the randomizer catalogs or patcher. A separate zoomed-in view and zoom toggle are not currently planned.
 
 Keep the existing organization where tiles belong to palettes and reuse the palette, pixel, tile-placement, selection, and undo tools. There is no requirement to reuse one graphics tile across multiple palettes.
 
-## Assets and budgets
+## Assets and tile counts
 
-Every area belongs to exactly one world, identified by an area-level `world` field with value `"light"`, `"dark"`, or `"special"`. Light-world and dark-world areas use their corresponding map palette groups; world membership is not selected independently for individual layers. Special-world areas have no map artwork, and there is no special-world map palette group or cloud tilemap.
+Every area belongs to exactly one world, identified by an area-level `world` field with value `"light"`, `"dark"`, or `"special"`. Light-world and dark-world areas use their corresponding map palette groups; world membership is not selected independently for individual layers. Special-world areas have no room map artwork, and there is no special-world map palette group or cloud area.
 
 Maintain separate light-world and dark-world map assets. For each world, support:
 
 - At most eight map palettes, shared between terrain and clouds, with sixteen colors per palette.
-- At most 1,024 terrain graphics tiles, summed across the world's map palettes.
-- Initially budget 256 cloud graphics tiles, also stored within palettes.
-- A 32×28 cloud tilemap for the visible region, padded to 32×32 by the future ROM builder.
+- Palette-owned graphics tiles with no determined tile budget. Do not display or enforce a terrain, cloud, or combined tile cap.
+- A shared 512×512 cloud tilemap, stored as a 64×64 grid of 8×8 tiles in a dedicated Base-only area.
 - Room map artwork attached to the existing area/theme and layer structure.
 
-Mark map palettes as a special subset of the existing palettes. Keep them selectable through the existing Palette selector alongside gameplay palettes. Show the map world's palette count out of eight, terrain tile count out of 1,024, and cloud tile count out of 256. Keep existing gameplay artwork separate from these budgets.
+Mark map palettes as a special subset of the existing palettes. Keep them selectable through the existing Palette selector alongside gameplay palettes. Show the map world's palette count out of eight. Tile usage is a separate, on-demand calculation across room maps and clouds, not an allocation count of all tiles owned by map palettes. Unplaced tiles and ordinary gameplay artwork do not contribute.
 
-Give each map tile a single intended-use field: Terrain or Clouds. Count every tile toward its designated budget, including unplaced tiles. These are allocation budgets calculated from tileset data alone; counting does not scan room/layer maps or cloud tilemaps. A palette may contain tiles of both kinds and still counts only once toward the shared eight-palette limit. Intended use is separate from tile priority.
+Give each map tile a single intended-use field: Terrain or Clouds. Keep this designation for editing and mismatch highlighting, not for counting separate tile budgets. A palette may contain tiles of both kinds and still counts only once toward the shared eight-palette limit. Intended use is separate from tile priority.
 
-Allow painting and pasting tiles onto either kind of map. Highlight placements whose tile designation does not match the map, using the existing bad-flip error presentation. Check only maps being displayed; do not block placement, remove mismatched tiles, or perform a global scan. Changing a tile's designation updates the budgets and displayed errors without modifying its placements. Mismatches in unopened maps remain undiscovered until those maps are displayed or checked by a future build.
+Allow painting and pasting tiles onto either kind of map. Highlight placements whose tile designation does not match the map, using the existing bad-flip error presentation. Check only maps being displayed; do not block placement or remove mismatched tiles. Changing a tile's designation updates displayed errors without modifying its placements or triggering a global usage scan. The explicit count operation counts actual referenced tiles, including mismatched placements, rather than silently omitting them.
 
 Use the existing tile palette ownership, flip, and priority fields. Pixel index zero remains transparent; the preview must also represent the world's backdrop color. Palette colors must retain the editor's SNES color representation.
 
+### On-demand world tile count
+
+Provide a `Count map tiles` action for the selected palette's world. Calculate under a Mode 7 assumption, regardless of the eventual runtime mode: terrain and clouds share one tile pool within a world, and different placed flips count as separate tiles. Use `(palette ID, tile index, flip)` as the counting identity. Repeated placements of the same identity count once; priority, collision, and intended-use metadata do not create additional identities. Do not merge different flip variants or distinct tile references by comparing pixel data.
+
+Scan each world's room-level `map` grids across all areas, themes, and layers, plus the ordinary layers of that world's Base cloud area. Include conditional and edge-variant layers, regardless of the currently selected preview or layer visibility. Use current in-memory edits for loaded areas and saved data for the others. Group a room by its area identity across themes, not by individual theme files. Exclude ordinary area artwork, including the imported `Light World Map` and `Dark World Map` reference canvases; their room-level `map` fields remain absent.
+
+For each world:
+
+1. Build the distinct tile set for every room/theme, taking the union across its map layers, and the distinct tile set used by the shared Base cloud area.
+2. Classify as general any tile used in more than one room across all themes, or used by the cloud area. Count the union of these general tiles once, so tiles shared by rooms and clouds are not double-counted.
+3. All remaining used tiles occur in exactly one room and are room-specific. For each room/theme, count its distinct room-specific tiles. Take the maximum of those counts across that room's themes, then sum these maxima across the world's rooms.
+4. Report `world tile count = general tiles + sum of per-room maximum room-specific tiles`. Show the general contribution and the room-specific contribution alongside the total, without a cap or percentage.
+
+For example, if there are 20 general tiles including clouds, one room needs 3 or 5 room-specific tiles in its themes, and another needs 2 or 4, the world count is `20 + max(3, 5) + max(2, 4) = 29`. Tiles reused across themes of the same room remain room-specific unless another room or the cloud area also uses them. This assumes one theme per room in a generated world; general tiles are conservatively retained across all themes.
+
+Calculate only on explicit request, not continuously or on save. Label the displayed result as the last calculated count; users recalculate after edits. Do not serialize counts or maintain a persistent usage index. This is an authored-tile usage estimate, not a guarantee of final VRAM usage: runtime packing and any generated composite graphics remain undecided.
+
 ## Room map editing
 
-Each existing room layer in a light-world or dark-world area can contain corresponding map tile edits. Size the map grid as three tiles per room screen in each dimension: 3×3 tiles for a small room and 6×6 for a large room. Each graphics tile is 8×8 pixels, giving artwork dimensions of 24×24 and 48×48 pixels respectively.
+Each existing room layer in a light-world or dark-world area can contain corresponding map tile edits. Use a 4×4 grid of 8×8 tiles for a small room and an 8×8 grid for a large room, matching vanilla's scale. The artwork dimensions are 32×32 and 64×64 pixels respectively. Existing area sizes count 256-pixel screens, so multiply each stored area dimension by two to obtain its room-map tile dimension.
 
 Use the existing layer conditions, ordering, visibility controls, and edge-variant preview to select and compose these edits. All selected room map edits compose into the single map background, regardless of the gameplay background targeted by their owning layers. Do not introduce separate map-specific edge conditions or a second layer stack.
 
@@ -38,24 +54,19 @@ Edge variants can replace map placements with references to different graphics t
 
 Reuse brush, erase, selection, copy/paste, flip, and undo behavior. Adding, deleting, reordering, or renaming an existing layer must preserve the association with its map edits. Existing projects without map artwork should remain editable without requiring artwork for every room first.
 
-## Clouds and priority preview
+## Cloud areas and priority preview
 
-Provide a cloud editor for each of the light and dark worlds, using its cloud graphics and map palettes. Display and allow editing only the 256×224 visible region, corresponding to the first 32×28 tiles of the 32×32 hardware tilemap. The bottom four tile rows are outside the editable canvas. Apply these bounds to painting, selection, and pasting.
+Store cloud artwork in dedicated ordinary areas named `Light World Clouds` and `Dark World Clouds`. These are special-purpose canvases with `world: "light"` or `"dark"`, not `world: "special"`, and no `vanilla_map_id`. Each has only a `Base` theme, shared by all room themes in its world. Use `size: [2, 2]` with an ordinary BG2 layer named `Main`, giving a fully editable 512×512 canvas of 64×64 tiles. Leave room-level `map` fields absent. Additional ordinary cloud layers, if present, use the existing layer tools and are included in the shared cloud tile set.
 
-Place the cloud tilemap at screen position (0, 0). Center a fixed 192×192 terrain footprint in the viewport with its upper-left corner at (32, 16), corresponding to an 8×8 grid of small-room units. Draw its outline in a contrasting color such as red underneath the cloud pixels, so opaque clouds cover the outline and transparent holes reveal it. The outline is an editor guide, not saved artwork.
+Edit clouds through the normal area selector and main canvas, reusing the Layers panel, palette selector, painting, selection, copy/paste, undo, and area backdrop-color controls. Do not add a cloud-editing mode, world selector, separate backdrop editor, or mode-specific return navigation. The theme selector and project-wide operations, including ROM import, theme creation/copy, tile remapping, and PNG export, must support the cloud areas having only Base; do not create or synchronize copies in other themes.
+
+Use the full authored canvas for editing even if a future runtime crops the map. Center a 256×256 reference terrain footprint at (128, 128) within the cloud canvas, corresponding to an 8×8 grid of small rooms at vanilla's scale. Draw its outline in a contrasting color such as red underneath the cloud pixels, so opaque clouds cover the outline and transparent holes reveal it. The outline is an editor guide, not saved artwork or a commitment to a runtime crop.
 
 Clouds use opaque colors with transparent holes: pixel index zero is transparent and every other pixel is opaque. Do not add color math or translucency controls.
 
-Use the terrain tile's existing priority field to control whether it appears above the clouds. Render BG2 clouds at high priority, producing this front-to-back order with BG3 disabled:
+Preserve the desired preview ordering using the terrain tile's existing priority field: high-priority terrain above clouds, clouds above ordinary terrain, and the backdrop visible through transparent pixels. Keep this composition rule independent of the runtime mode. BG1/BG2 assignments, sprite priorities, and how Mode 7 would compose terrain with clouds remain runtime design decisions. Preserve the existing meaning of priority on gameplay artwork.
 
-1. BG1 terrain tiles with priority enabled, such as mountain peaks.
-2. BG2 cloud tiles with high priority.
-3. BG1 terrain tiles with priority disabled.
-4. The backdrop through transparent pixels.
-
-Future pendant/crystal sprites can use sprite priority 3 to appear above these backgrounds. Preserve the existing meaning of priority on gameplay artwork; only the map preview uses this map-specific composition.
-
-Preview only the selected room's composed map layers, responding to the existing layer and edge-condition controls. Do not add a neighboring-room arrangement or a complete reference-world preview. The cloud editor uses the terrain-footprint outline rather than assembled room artwork; generated-seed integration is deferred.
+Preview only the selected room's composed map layers, responding to existing layer and edge-condition controls. Do not add a neighboring-room arrangement or a generated-world preview. Cloud areas use the terrain-footprint outline rather than assembled room artwork; generated-seed integration is deferred. The imported reference areas remain ordinary editable canvases.
 
 ## User interface
 
@@ -63,13 +74,13 @@ Preview only the selected room's composed map layers, responding to the existing
 
 Keep the normal room artwork in the main area canvas. Insert the selected room's map editing canvas into the existing Layers panel below the layer list and above the layer name, background, condition, and other properties. Do not add a toolbar view selector or a separate room-map editing mode.
 
-Show the composed visible map layers in this small canvas, with painting and other edits applied to the selected layer, matching the main area's editing behavior. Layer selection, visibility, and condition previews update both canvases. Enlarge the map pixels enough to edit comfortably while fitting the 3×3 or 6×6 grid within the panel. Omit the map canvas for special-world areas.
+Show the composed visible map layers in this small canvas, with painting and other edits applied to the selected layer, matching the main area's editing behavior. Layer selection, visibility, and condition previews update both canvases. Enlarge the map pixels enough to edit comfortably while fitting the 4×4 or 8×8 grid within the panel. Omit the room-map canvas for special-world areas and the dedicated cloud areas.
 
 ### Palettes and properties
 
 Use the existing Palette selector for both gameplay and map palettes without automatic context filtering. Extend the palette editing modal, which currently supports rename and delete, with `Map world: None / Light / Dark`; this edits `map_world`, with None meaning an ordinary gameplay palette.
 
-Keep the existing color, tileset, and pixel editors. For map tiles, expose `Map use: Terrain / Clouds` alongside the existing priority and flip constraints. Show the relevant world's allocation counts in the palette panel and update them as palette membership or tile designations change. Reuse the existing error presentation for mismatched placements.
+Keep the existing color, tileset, and pixel editors. For map tiles, expose `Map use: Terrain / Clouds` alongside the existing priority and flip constraints. Show the world's palette count and a `Count map tiles` action in the palette panel. Display its last calculated combined world tile count and the general/room-specific contributions, with no tile limit. Do not recalculate usage automatically when artwork or metadata changes. Reuse the existing error presentation for mismatched placements.
 
 Add `World: Light / Dark / Special` to the existing area creation and editing dialogs.
 
@@ -77,27 +88,20 @@ Add `World: Light / Dark / Special` to the existing area creation and editing di
 
 Add one `Tools` menu button to the toolbar. Normally only the button is visible; clicking it reveals the less-frequently used actions:
 
-- `Clouds…`: open cloud editing in the main area canvas.
 - `Conditions`: toggle the existing Conditions panel, replacing its standalone toolbar button.
 - `Dynamic tiles`: toggle the existing dynamic-tile editor, moving its entry out of Project Settings.
 
 Indicate open Conditions and Dynamic tiles panels with checkmarks. Close the menu after choosing an action, clicking outside, or pressing Escape. Keep Layers directly accessible on the toolbar.
 
-### Cloud editing in the main canvas
-
-Opening Clouds replaces the main area canvas with the 256×224 cloud editor. Replace the area/theme controls with `World: Light / Dark`, backdrop-color editing using the existing RGB controls, and `Back to area`. Keep the palette, tileset, and pixel editing controls available.
-
-Hide the Layers and Conditions panels while editing clouds. Returning to area editing restores the selected area, theme, layer, and prior panel state. The world selector is local to cloud editing; there is no general Area/Map/Clouds view selector.
-
 ## Persistence
 
-Extend the existing project save/load and undo paths to cover map palette classification, world association, tile intended use, cloud maps, and per-layer room map edits. Reuse existing tile placement and palette serialization where practical. Saving unrelated gameplay artwork must not discard map artwork, and palette/tile edits must update the map previews through the existing dirty-state behavior.
+Extend the existing project save/load and undo paths to cover map palette classification, world association, tile intended use, and per-layer room map edits. Cloud artwork uses ordinary area-layer persistence and undo. Reuse existing tile placement and palette serialization where practical. Saving unrelated gameplay artwork must not discard map artwork, and palette/tile edits must update the map previews through the existing dirty-state behavior.
 
 ### Palette and tile fields
 
 Keep palettes in `Palettes/<name>.json`. Add `map_world` with value `"light"` or `"dark"` to map palettes; omit it for ordinary gameplay palettes. Preserve existing palette IDs, colors, and tile collections.
 
-Add `map_use` with value `"terrain"` or `"clouds"` to each map tile's existing object; omit it for ordinary gameplay tiles. Preserve existing tile IDs, priority, flip constraints, and pixel data. Derive palette and tile budgets from these fields without serializing counts or usage indexes.
+Add `map_use` with value `"terrain"` or `"clouds"` to each map tile's existing object; omit it for ordinary gameplay tiles. Preserve existing tile IDs, priority, flip constraints, and pixel data. Derive the palette count from palette membership. Derive tile usage on demand from placements using the counting rules above, without serializing counts or usage indexes.
 
 ### Area and layer fields
 
@@ -108,39 +112,37 @@ Add an optional `map` object to each existing layer, using parallel `palettes`, 
 ```json
 "map": {
   "palettes": [
-    [120, 120, 120],
-    [120, null, 120],
-    [120, 120, 120]
+    [120, 120, 120, 120],
+    [120, null, 120, 120],
+    [120, 120, 120, 120],
+    [120, 120, 120, 120]
   ],
   "tiles": [
-    [0, 1, 2],
-    [3, null, 4],
-    [5, 6, 7]
+    [0, 1, 2, 3],
+    [4, null, 5, 6],
+    [7, 8, 9, 10],
+    [11, 12, 13, 14]
   ],
   "flips": [
-    [0, 0, 0],
-    [0, null, 0],
-    [0, 0, 0]
+    [0, 0, 0, 0],
+    [0, null, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0]
   ]
 }
 ```
 
-Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Existing area `size` values count 256-pixel screens: a small room is `[2, 2]` and a large room is `[4, 4]`. Multiply each dimension by 3/2 to obtain the 3×3 or 6×6 map grid. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Special-world areas have no layer map artwork.
+Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Existing area `size` values count 256-pixel screens: a small room is `[2, 2]` and a large room is `[4, 4]`. Multiply each dimension by two to obtain the 4×4 or 8×8 map grid. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Special-world areas have no layer map artwork.
 
-### World map files
+### Cloud area files
 
-Add `OverworldMap/light.json` and `OverworldMap/dark.json`, each containing:
+Store the cloud tilemaps in `Areas/Light World Clouds/Base.json` and `Areas/Dark World Clouds/Base.json`, using the existing area `bg_color` and ordinary layer `screens`/`palettes`/`tiles`/`flips` serialization. Their 64×64 grids cover the entire 512×512 artwork; there are no inaccessible rows or hardware padding in the authored data. Their ordinary layer PNGs use the existing export paths. The canonical cloud areas are the source of cloud placements for counting and eventual runtime generation.
 
-- `bg_color`: the world-map backdrop in the existing RGB representation.
-- `clouds`: parallel `palettes`, `tiles`, and `flips` grids using the same placement format as layer `map` objects.
-
-Store exactly 28 rows of 32 cells in each cloud grid, matching the 256×224 editable region. The future ROM builder pads this to the hardware's 32×32 tilemap; do not store four inaccessible rows in the editor files. The fixed viewport offsets and terrain-footprint outline are editor conventions, not serialized artwork or configuration.
-
-Do not redesign existing gameplay palettes or add a separate general-purpose asset system.
+Retire the separate `OverworldMap/light.json` and `OverworldMap/dark.json` design and its previously implemented cloud state/persistence paths. Cloud editing, saving, undo, tile remapping, and usage scans use ordinary area layers. Keep the terrain-footprint outline as an editor convention. Do not redesign gameplay palettes or introduce a general-purpose asset system.
 
 ## Vanilla map graphics import
 
-As a follow-up to the persistence foundation in step 1, extend the ROM importer to extract the vanilla Mode 7 overworld map palettes and graphics and convert them into the editor's palette-owned 4bpp map tiles. Also import these assets into the existing project at `~/ALTTPRetiling`. Import palettes, their corresponding graphics tiles, and the reference areas described below; defer per-room map artwork and cloud-editor tilemaps. Mark the imported palettes with the appropriate `map_world` and their tiles with `map_use: "terrain"`.
+As a follow-up to the persistence foundation in step 1, extend the ROM importer to extract the vanilla Mode 7 overworld map palettes and graphics and convert them into the editor's palette-owned 4bpp map tiles. Also import these assets into the existing project at `~/ALTTPRetiling`. Import palettes, their corresponding graphics tiles, and the reference areas described below; defer populating per-room map artwork and the dedicated cloud areas. Mark the imported palettes with the appropriate `map_world` and their tiles with `map_use: "terrain"`.
 
 Keep light-world and dark-world palette groups separate, even where the vanilla game shares graphics. Determine the graphics used by each world's vanilla map and interpret them using that world's colors. Preserve pixel colors and transparency during conversion; the assumption that each tile can be converted losslessly must be checked before importing.
 
@@ -150,34 +152,22 @@ Report the resulting palette and tile counts for each world, and verify the conv
 
 Completed: the importer supports the Japanese and US vanilla layouts, and the assets have been added to `~/ALTTPRetiling` without changing existing files. Exact palette packing produces six palettes for 223 Light World tiles and six palettes for 208 Dark World tiles; five palettes cannot represent either world's artwork losslessly. Include the shared outer border, which the Dark World retains from the Light World tilemap, using each world's colors. Imported palette names are `Light World Map 1` through `6` and `Dark World Map 1` through `6`.
 
-Follow the existing importer's matching behavior within each world: reuse palettes with matching opaque colors and matching tiles, append missing artwork, and preserve edited assets. Reject imports that would exceed the world's palette or terrain budgets without changing existing palettes. Pixel comparisons, JP/US equivalence, repeat imports, preservation of edits, save/reload, and the full ROM-import workflow have been verified on copied projects; temporary verification code was removed.
+Follow the existing importer's matching behavior within each world: reuse palettes with matching opaque colors and matching tiles, append missing artwork, and preserve edited assets. Keep the shared eight-palette limit and preserve existing palettes on failure. Remove the importer's existing terrain tile-cap check; tile usage has no enforced cap while the runtime design is undecided. Pixel comparisons, JP/US equivalence, repeat imports, preservation of edits, save/reload, and the full ROM-import workflow have been verified on copied projects; temporary verification code was removed.
 
-Import the assembled vanilla tilemaps into two ordinary reference/template areas named `Light World Map` and `Dark World Map`, with the corresponding `world`, no `vanilla_map_id`, and reciprocal `other_world_area` links. Each uses `size: [2, 2]` and one ordinary BG2 layer named `Main`, containing the 64×64-tile map including its outer border. The Dark World replaces the central 32×32 tiles of the Light World layout and retains the border. Placements reference the imported palettes and tiles without duplicating graphics. Leave the layer's room-level `map` field absent. Create missing theme files for both areas, matching normal area creation; subsequent ROM imports replace the selected theme's reference maps while preserving existing reference maps in other themes. These canvases preserve vanilla's scale for editing and copying; adapting its 4×4 tiles per small room to the planned 3×3 artwork remains manual.
+Import the assembled vanilla tilemaps into two ordinary reference/template areas named `Light World Map` and `Dark World Map`, with the corresponding `world`, no `vanilla_map_id`, and reciprocal `other_world_area` links. Each uses `size: [2, 2]` and one ordinary BG2 layer named `Main`, containing the 64×64-tile map including its outer border. The Dark World replaces the central 32×32 tiles of the Light World layout and retains the border. Placements reference the imported palettes and tiles without duplicating graphics. Leave the layer's room-level `map` field absent. Create missing theme files for both areas, matching normal area creation; subsequent ROM imports replace the selected theme's reference maps while preserving existing reference maps in other themes. These canvases preserve vanilla's scale for editing and copying into the planned 4×4 and 8×8 room maps. They are reference artwork and do not contribute their ordinary layer placements to the world usage count.
 
 Completed: both reference areas have been added to all five themes in `~/ALTTPRetiling`, with their layer PNGs and reciprocal world links. Saved placements and PNGs were checked pixel-for-pixel against the ROM, along with save/reload, JP/US imports, reuse or creation of map palettes, preservation of other themes, and the full ROM-import workflow.
 
-## Future VRAM layout
+## Runtime mode and VRAM layout
 
-Load only the selected world's assets. Light and dark worlds reuse the same addresses. The following layout reserves the full graphics capacities while leaving 12 KiB unused; palette data resides separately in CGRAM.
+Mode 7 versus Mode 1, the final tile budget, tilemap packing, and the VRAM layout remain undecided. The previous fixed Mode 1 layout and separate terrain/cloud tile caps are superseded. Keep the editor's palette-owned assets and vanilla-scale artwork independent of that decision.
 
-| Purpose | VRAM byte addresses | VRAM word addresses | Size |
-|---|---|---|---:|
-| BG1 terrain graphics, 1,024 tiles | `$0000–$7FFF` | `$0000–$3FFF` | 32 KiB |
-| BG2 cloud graphics, 256 tiles | `$8000–$9FFF` | `$4000–$4FFF` | 8 KiB |
-| BG1 terrain tilemap, 32×32 | `$A000–$A7FF` | `$5000–$53FF` | 2 KiB |
-| BG2 cloud tilemap, 32×32 | `$A800–$AFFF` | `$5400–$57FF` | 2 KiB |
-| Unused | `$B000–$BFFF` | `$5800–$5FFF` | 4 KiB |
-| Sprite graphics, up to 256 tiles | `$C000–$DFFF` | `$6000–$6FFF` | 8 KiB |
-| Unused | `$E000–$FFFF` | `$7000–$7FFF` | 8 KiB |
-
-The future ROM builder can pack tiles designated Terrain into the BG1 graphics region and tiles designated Clouds into the BG2 graphics region, translating editor references to hardware tile indices. A palette containing both kinds uses one background palette row. The builder can check placement designations when it reads the complete map data. Background palette rows occupy CGRAM entries `$00–$7F`; sprite palettes occupy `$80–$FF`. These runtime assignments are planning constraints, not editor implementation work.
-
-The layout and priority ordering follow the [SNES background documentation](https://wiki.superfamicom.org/backgrounds) and [register documentation](https://wiki.superfamicom.org/registers).
+Use Mode 7 assumptions only for the on-demand usage estimate: flips occupy separate counted tiles, and clouds and terrain share a world tile pool. If Mode 1 is chosen, support scrolling and decide whether to crop the 512×512 authored map to 384×384 or smaller. Cropping must not reduce the editor's stored cloud canvas. Defer renderer-specific tile deduplication, generated composite graphics, hardware layer assignment, and sprite placement until runtime work is authorized.
 
 ## Implementation sequence
 
-1. Completed: add the area `world` field, populate existing areas, and add persistence for the map assets and per-layer map edits without modifying randomizer catalogs or ROM code. The ROM importer assigns worlds, and all 425 existing `ALTTPRetiling` area files now have the field, including special-world classification for the template areas.
-2. Extend the palette editing modal with map-world selection, keep map palettes in the existing Palette selector, and add tile intended-use editing and allocation budget counts. Reuse the existing palette and graphics editing functionality, including tile priority, and expose world selection in the area dialogs.
-3. Add the selected room's map canvas below the Layers panel's layer list, tied to the selected layer and its condition preview, with normal selection and undo operations, intended-use mismatch highlighting, and composed visible layers.
-4. Add the Tools menu, move Conditions and Dynamic tiles into it, and open cloud editing from it in the main canvas. Add the two cloud tilemaps with mismatch highlighting, a 256×224 editable canvas, and the terrain-footprint outline underneath opaque cloud pixels. Restore the area editing context when leaving clouds.
-5. Verify save/reload, undo, palette/tile edits, allocation counts, mismatch highlighting after painting/pasting and reclassification, small/large room dimensions, selected-room layer composition, edge variants, cloud editing bounds, outline visibility through transparent cloud pixels, menu behavior, and return-to-area state on a copied project. Run the editor's applicable build checks. Remove any temporary verification code before completion.
+1. Completed foundation: area `world` metadata, initial map palette and room-map persistence, vanilla graphics import, and paired reference-map areas. Update the previously implemented room-map dimensions to `area.size * 2`, retire the separate cloud-map state/files in favor of Base-only cloud areas, and remove the importer's terrain tile cap. Keep runtime and randomizer changes deferred.
+2. Extend the palette editing modal with map-world selection, retain the existing Palette selector, expose tile intended use and priority, and add the on-demand combined world tile count with general/room-specific contributions. Keep the palette count out of eight but show no tile cap. Expose world selection in the area dialogs.
+3. Add the selected room's 4×4 or 8×8 map canvas below the Layers panel's layer list, tied to its selected layer and condition preview, with normal selection and undo operations, intended-use mismatch highlighting, and composed visible layers.
+4. Support `Light World Clouds` and `Dark World Clouds` as Base-only 512×512 ordinary area canvases. Reuse area tools, support missing non-Base theme files in selectors and project-wide operations, add cloud-use mismatch highlighting and the terrain-footprint outline, and omit their room-map canvases. No new cloud editor mode is needed. Add the Tools menu for Conditions and Dynamic tiles as already planned.
+5. Verify save/reload, undo, palette/tile edits, 4×4 and 8×8 map persistence, layer/edge-variant composition, and cloud-area editing on a copied project. Verify counting with flipped placements, repeated placements, conditional layers, tiles shared across rooms or with clouds, room-specific theme maxima, unused tiles, excluded reference artwork, Base-only clouds, and unsaved edits. Check that recounting is explicit and no tile cap is shown or enforced. Run applicable build checks and remove temporary verification code before completion.
