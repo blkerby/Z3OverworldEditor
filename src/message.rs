@@ -6,7 +6,7 @@ use crate::state::{
     AnimatedTileGroup, AreaId, AreaPosition, Background, BackgroundLayering, CollisionType,
     ColorIdx, ColorRGB, ColorValue, DynamicTileTarget, DynamicTileType, DynamicTileVariant, Focus,
     Layer, Palette, PaletteId, PaletteIdx, PixelCoord, PixelTarget, Tile, TileBlock, TileCoord,
-    TileIdx,
+    TileIdx, World,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -165,15 +165,21 @@ pub enum Message {
     SetAddAreaName(String),
     SetAddAreaSizeX(u8),
     SetAddAreaSizeY(u8),
+    SetAddAreaWorld(World),
     AddArea {
         name: String,
         size: (u8, u8),
+        world: World,
     },
     EditAreaDialogue,
     SetEditAreaName(String),
     EditArea {
         old_name: String,
         new_name: String,
+    },
+    EditAreaWorld {
+        area_id: AreaId,
+        value: World,
     },
     EditAreaBGRed(ColorValue),
     EditAreaBGGreen(ColorValue),

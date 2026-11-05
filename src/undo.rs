@@ -355,12 +355,17 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::SetAddAreaName(_) => UndoAction::None,
         Message::SetAddAreaSizeX(_) => UndoAction::None,
         Message::SetAddAreaSizeY(_) => UndoAction::None,
-        Message::AddArea { name, size: _ } => UndoAction::Ok(Message::DeleteArea(name.clone())),
+        Message::SetAddAreaWorld(_) => UndoAction::None,
+        Message::AddArea { name, .. } => UndoAction::Ok(Message::DeleteArea(name.clone())),
         Message::EditAreaDialogue => UndoAction::None,
         Message::SetEditAreaName(_) => UndoAction::None,
         Message::EditArea { old_name, new_name } => UndoAction::Ok(Message::EditArea {
             old_name: new_name.clone(),
             new_name: old_name.clone(),
+        }),
+        Message::EditAreaWorld { area_id, .. } => UndoAction::Ok(Message::EditAreaWorld {
+            area_id: area_id.clone(),
+            value: state.areas[area_id].world,
         }),
         Message::EditAreaBGRed(_) => UndoAction::None,
         Message::EditAreaBGGreen(_) => UndoAction::None,

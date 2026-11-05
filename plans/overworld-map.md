@@ -8,7 +8,7 @@ Keep the existing organization where tiles belong to palettes and reuse the pale
 
 ## Assets and tile counts
 
-Every area belongs to exactly one world, identified by an area-level `world` field with value `"light"`, `"dark"`, or `"special"`. World membership is not selected independently for individual layers. Special-world areas have no room map artwork or cloud area.
+Every area belongs to exactly one world, identified by an area-level `world` field with value `"light"`, `"dark"`, or `"special"`. World membership is not selected independently for individual layers. Special-world areas do not use room map artwork and have no cloud area.
 
 Keep world membership on areas, not on palettes or tiles. For each world, support:
 
@@ -60,13 +60,13 @@ Completed: empty Base-only cloud areas and their layer PNGs have been added to `
 
 Edit clouds through the normal area selector and main canvas, reusing the Layers panel, palette selector, painting, selection, copy/paste, undo, and area backdrop-color controls. Do not add a cloud-editing mode, world selector, separate backdrop editor, or mode-specific return navigation. The theme selector and project-wide operations, including ROM import, theme creation/copy, tile remapping, and PNG export, must support the cloud areas having only Base; do not create or synchronize copies in other themes.
 
-Use the full authored canvas for editing even if a future runtime crops the map. Center a 256×256 reference terrain footprint at (128, 128) within the cloud canvas, corresponding to an 8×8 grid of small rooms at vanilla's scale. Draw its outline in a contrasting color such as red underneath the cloud pixels, so opaque clouds cover the outline and transparent holes reveal it. The outline is an editor guide, not saved artwork or a commitment to a runtime crop.
+Use the full authored canvas for editing even if a future runtime crops the map.
 
 Clouds use opaque colors with transparent holes: pixel index zero is transparent and every other pixel is opaque. Do not add color math or translucency controls.
 
 Preserve the desired preview ordering using the terrain tile's existing priority field: high-priority terrain above clouds, clouds above ordinary terrain, and the backdrop visible through transparent pixels. Keep this composition rule independent of the runtime mode. BG1/BG2 assignments, sprite priorities, and how Mode 7 would compose terrain with clouds remain runtime design decisions. Preserve the existing meaning of priority on gameplay artwork.
 
-Preview only the selected room's composed map layers, responding to existing layer and edge-condition controls. Do not add a neighboring-room arrangement or a generated-world preview. Cloud areas use the terrain-footprint outline rather than assembled room artwork; generated-seed integration is deferred. The imported reference areas remain ordinary editable canvases.
+Preview only the selected room's composed map layers, responding to existing layer and edge-condition controls. Do not add a neighboring-room arrangement or a generated-world preview. Clouds use the ordinary area preview; generated-seed integration is deferred. The imported reference areas remain ordinary editable canvases.
 
 ## User interface
 
@@ -82,7 +82,7 @@ Keep the existing Palette selector, palette rename/delete modal, color editor, t
 
 Add a `Count map tiles` action inside Project Settings. Display both worlds' last calculated tile counts, general/room-specific contributions, and used palette counts out of eight below the button in Project Settings. Do not show a tile limit or recalculate automatically after edits.
 
-Add `World: Light / Dark / Special` to the existing area creation and editing dialogs.
+The area creation and editing dialogs provide `World: Light / Dark / Special`. New areas default to the current area's world; edits apply across all themes and support undo. Changing the world preserves existing artwork; Special excludes room maps from usage and the planned map canvas. The canonical cloud areas display their name-derived world as fixed text.
 
 ### Tools menu
 
@@ -130,13 +130,13 @@ Add an optional `map` object to each existing layer, using parallel `palettes`, 
 }
 ```
 
-Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Existing area `size` values count 256-pixel screens: a small room is `[2, 2]` and a large room is `[4, 4]`. Multiply each dimension by two to obtain the 4×4 or 8×8 map grid. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Special-world areas have no layer map artwork.
+Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Existing area `size` values count 256-pixel screens: a small room is `[2, 2]` and a large room is `[4, 4]`. Multiply each dimension by two to obtain the 4×4 or 8×8 map grid. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Room map artwork retained in special-world areas is inactive.
 
 ### Cloud area files
 
 Store the cloud tilemaps in `Areas/Light World Clouds/Base.json` and `Areas/Dark World Clouds/Base.json`, using the existing area `bg_color` and ordinary layer `screens`/`palettes`/`tiles`/`flips` serialization. Their 64×64 grids cover the entire 512×512 artwork; there are no inaccessible rows or hardware padding in the authored data. Their ordinary layer PNGs use the existing export paths. The canonical cloud areas are the source of cloud placements for counting and eventual runtime generation.
 
-Retire the separate `OverworldMap/light.json` and `OverworldMap/dark.json` design and its previously implemented cloud state/persistence paths. Cloud editing, saving, undo, tile remapping, and usage scans use ordinary area layers. Keep the terrain-footprint outline as an editor convention. Do not redesign gameplay palettes or introduce a general-purpose asset system.
+Retire the separate `OverworldMap/light.json` and `OverworldMap/dark.json` design and its previously implemented cloud state/persistence paths. Cloud editing, saving, undo, tile remapping, and usage scans use ordinary area layers. Do not redesign gameplay palettes or introduce a general-purpose asset system.
 
 ## Vanilla map graphics import
 
@@ -165,7 +165,7 @@ Use Mode 7 assumptions only for the on-demand usage estimate: flips occupy separ
 ## Implementation sequence
 
 1. Completed foundation: area `world` metadata, palette and room-map persistence, vanilla graphics import, and paired reference-map areas. Room-map dimensions now use `area.size * 2`; Base-only ordinary cloud areas replace the separate cloud-map state/files; the importer's terrain tile cap is removed. Theme selectors, theme operations, tile scans/remapping, PNG export, and ROM import handle Base-only clouds. Keep runtime and randomizer changes deferred.
-2. Completed: remove palette world and tile intended-use classifications, and add one on-demand usage report for both worlds with general/room-specific contributions and used palette counts out of eight. Show no tile cap. Still to do: expose world selection in the area dialogs.
+2. Completed: remove palette world and tile intended-use classifications, and add one on-demand usage report for both worlds with general/room-specific contributions and used palette counts out of eight. Show no tile cap. Area creation and editing dialogs now expose world selection, with edits applied across themes and undo support.
 3. Add the selected room's 4×4 or 8×8 map canvas below the Layers panel's layer list, tied to its selected layer and condition preview, with normal selection and undo operations and composed visible layers.
-4. Base-only cloud canvases already reuse the ordinary area tools and participate in project-wide operations. Add the terrain-footprint outline, and omit their room-map canvases when that UI is added. No new cloud editor mode is needed. Add the Tools menu for Conditions and Dynamic tiles as already planned.
+4. Base-only cloud canvases already reuse the ordinary area tools and participate in project-wide operations. Omit their room-map canvases when that UI is added. No new cloud editor mode is needed. Add the Tools menu for Conditions and Dynamic tiles as already planned.
 5. Verify save/reload, undo, palette/tile edits, 4×4 and 8×8 map persistence, layer/edge-variant composition, and cloud-area editing on a copied project. Verify counting with flipped placements, repeated placements, conditional layers, tiles shared across rooms or with clouds, room-specific theme maxima, unused tiles, excluded reference artwork, Base-only clouds, and unsaved edits. Check that recounting is explicit and no tile cap is shown or enforced. Run applicable build checks and remove temporary verification code before completion.

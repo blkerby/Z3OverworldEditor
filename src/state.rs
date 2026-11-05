@@ -177,6 +177,20 @@ pub enum World {
     Special,
 }
 
+impl World {
+    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::Special];
+}
+
+impl std::fmt::Display for World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+            Self::Special => "Special",
+        })
+    }
+}
+
 pub fn get_cloud_world(area_name: &str) -> Option<World> {
     match area_name {
         "Light World Clouds" => Some(World::Light),
@@ -538,6 +552,7 @@ pub enum Dialogue {
     AddArea {
         name: AreaName,
         size: (u8, u8),
+        world: World,
     },
     EditArea {
         name: AreaName,

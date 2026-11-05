@@ -218,9 +218,11 @@ pub fn view_dialogue<'a>(
                 rename_palette_view(state, name),
                 Message::HideModal,
             ),
-            Dialogue::AddArea { name, size } => {
-                modal(main_view, add_area_view(name, *size), Message::HideModal)
-            }
+            Dialogue::AddArea { name, size, world } => modal(
+                main_view,
+                add_area_view(name, *size, *world),
+                Message::HideModal,
+            ),
             Dialogue::EditArea { name } => {
                 modal(main_view, edit_area_view(state, name), Message::HideModal)
             }

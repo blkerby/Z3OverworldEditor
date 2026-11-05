@@ -16,8 +16,8 @@ use crate::{
     helpers::{alpha_blend, scale_color},
     message::{Message, SelectionSource},
     state::{
-        Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx, EditorState, Focus,
-        Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool,
+        get_cloud_world, Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx,
+        EditorState, Focus, Palette, PaletteId, Tile, TileBlock, TileCoord, TileIdx, Tool, World,
     },
 };
 
@@ -1032,10 +1032,16 @@ pub fn edge_preview_view(state: &EditorState) -> Element<'_, Message> {
         .into()
 }
 
-pub fn add_area_view(name: &str, size: (u8, u8)) -> Element<'_, Message> {
+pub fn add_area_view(name: &str, size: (u8, u8), world: World) -> Element<'_, Message> {
+    let world_control: Element<'_, Message> = if let Some(world) = get_cloud_world(name) {
+        text(world.to_string()).into()
+    } else {
+        pick_list(World::ALL, Some(world), Message::SetAddAreaWorld).into()
+    };
     let add_area_msg = Message::AddArea {
         name: name.to_owned(),
         size,
+        world,
     };
     container(
         column![
@@ -1061,6 +1067,9 @@ pub fn add_area_view(name: &str, size: (u8, u8)) -> Element<'_, Message> {
             ]
             .spacing(10)
             .align_y(Vertical::Center),
+            row![text("World: ").width(70), world_control]
+                .spacing(10)
+                .align_y(Vertical::Center),
             button(text("Add area"))
                 .style(button::success)
                 .on_press(add_area_msg.clone()),
@@ -1077,6 +1086,19 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
     let old_name = state.main_area().name.clone();
     let area_id = state.main_area_id.clone();
     let area = state.main_area();
+    let world_control: Element<'static, Message> = if let Some(world) = get_cloud_world(&area.name)
+    {
+        text(world.to_string()).into()
+    } else {
+        let area_id = area_id.clone();
+        pick_list(World::ALL, Some(area.world), move |value| {
+            Message::EditAreaWorld {
+                area_id: area_id.clone(),
+                value,
+            }
+        })
+        .into()
+    };
     let rgb_width = 80;
     let edit_area_msg = Message::EditArea {
         old_name: old_name.clone(),
@@ -1094,6 +1116,9 @@ pub fn edit_area_view(state: &EditorState, name: &str) -> Element<'static, Messa
             ]
             .spacing(10)
             .align_y(Vertical::Center),
+            row![text("World: ").width(70), world_control]
+                .spacing(10)
+                .align_y(Vertical::Center),
             row![text("Background color:")],
             row![
                 text("Red"),

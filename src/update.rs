@@ -1416,6 +1416,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             state.dialogue = Some(Dialogue::AddArea {
                 name: "".to_string(),
                 size: (2, 2),
+                world: state.main_area().world,
             });
             return Ok(Some(iced::widget::text_input::focus("AddArea")));
         }
@@ -1434,7 +1435,12 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 size.1 = new_y;
             }
         }
-        Message::AddArea { name, size } => {
+        Message::SetAddAreaWorld(value) => {
+            if let Some(Dialogue::AddArea { world, .. }) = &mut state.dialogue {
+                *world = *value;
+            }
+        }
+        Message::AddArea { name, size, world } => {
             if name.is_empty() {
                 warn!("Empty area name is invalid.");
                 return Ok(None);
@@ -1462,7 +1468,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         theme,
                         size,
                         vanilla_map_id: None,
-                        world: cloud_world.unwrap_or(state.main_area().world),
+                        world: cloud_world.unwrap_or(*world),
                         other_world_area: None,
                         bg_color: state.areas[&state.main_area_id].bg_color,
                         bg_layering: BackgroundLayering::None,
@@ -1536,6 +1542,21 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 }
             }
             state.dialogue = None;
+        }
+        Message::EditAreaWorld { area_id, value } => {
+            for theme in state.get_area_themes(&area_id.area) {
+                let id = AreaId {
+                    area: area_id.area.clone(),
+                    theme,
+                };
+                if !state.areas.contains_key(&id) {
+                    state.load_area(&id)?;
+                }
+                let area = state.areas.get_mut(&id).unwrap();
+                area.world = *value;
+                area.modified = true;
+            }
+            state.cleanup_areas()?;
         }
         &Message::EditAreaBGRed(c) => {
             let mut color = state.main_area().bg_color;
