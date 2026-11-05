@@ -2,7 +2,7 @@
 
 ## Goal and scope
 
-Add editor support for creating overworld map artwork from scratch. Target a single, fixed, zoomed-out Mode 1 view with room-based terrain on BG1, screen-sized clouds on BG2, and pendant/crystal sprites. Defer ROM injection, runtime loading, marker implementation, and changes to the randomizer catalogs or patcher. Do not implement a zoomed-in view, zoom switching, or map scrolling.
+Add editor support for creating overworld map artwork, with vanilla Mode 7 graphics available as imported starting material. Target a single, fixed, zoomed-out Mode 1 view with room-based terrain on BG1, screen-sized clouds on BG2, and pendant/crystal sprites. Defer ROM injection, runtime loading, marker implementation, and changes to the randomizer catalogs or patcher. Do not implement a zoomed-in view, zoom switching, or map scrolling.
 
 Keep the existing organization where tiles belong to palettes and reuse the palette, pixel, tile-placement, selection, and undo tools. There is no requirement to reuse one graphics tile across multiple palettes.
 
@@ -125,7 +125,7 @@ Add an optional `map` object to each existing layer, using parallel `palettes`, 
 }
 ```
 
-Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Dimensions come from the area's size, giving 3×3 or 6×6 grids. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Special-world areas have no layer map artwork.
+Palette references are editor palette IDs, not hardware palette-row numbers. Tile references are indices within their owning palette, and flips use the existing encoding. An absent placement has `null` in all three grids; a placed blank tile has ordinary numeric references. Existing area `size` values count 256-pixel screens: a small room is `[2, 2]` and a large room is `[4, 4]`. Multiply each dimension by 3/2 to obtain the 3×3 or 6×6 map grid. Store full grids without position/size fields or cropped fragments. Omit `map` when the layer has no map edits. Conditions and ordering remain on the owning layer rather than being duplicated inside `map`. Special-world areas have no layer map artwork.
 
 ### World map files
 
@@ -137,6 +137,16 @@ Add `OverworldMap/light.json` and `OverworldMap/dark.json`, each containing:
 Store exactly 28 rows of 32 cells in each cloud grid, matching the 256×224 editable region. The future ROM builder pads this to the hardware's 32×32 tilemap; do not store four inaccessible rows in the editor files. The fixed viewport offsets and terrain-footprint outline are editor conventions, not serialized artwork or configuration.
 
 Do not redesign existing gameplay palettes or add a separate general-purpose asset system.
+
+## Vanilla map graphics import
+
+As a follow-up to the persistence foundation in step 1, extend the ROM importer to extract the vanilla Mode 7 overworld map palettes and graphics and convert them into the editor's palette-owned 4bpp map tiles. Also import these assets into the existing project at `~/ALTTPRetiling`. Import only palettes and their corresponding graphics tiles, not room/layer map placements or cloud tilemaps. Mark the imported palettes with the appropriate `map_world` and their tiles with `map_use: "terrain"`.
+
+Keep light-world and dark-world palette groups separate, even where the vanilla game shares graphics. Determine the graphics used by each world's vanilla map and interpret them using that world's colors. Preserve pixel colors and transparency during conversion; the assumption that each tile can be converted losslessly must be checked before importing.
+
+For each world, collect each tile's distinct opaque colors and group tiles into the minimum number of 4bpp palettes. Each palette can contain at most fifteen opaque colors plus transparent index zero. Tiles may share a palette when the union of their opaque colors fits within those fifteen entries. Remap each tile's pixels to its assigned palette while preserving the 8×8 artwork. A tile requiring more than fifteen opaque colors, or a world requiring more than eight palettes, needs a design decision rather than silent color reduction or omitted artwork.
+
+Report the resulting palette and tile counts for each world, and verify the converted graphics against the source pixels. Add the converted palettes and tiles to `ALTTPRetiling` using unused palette IDs and distinct names, preserving existing artwork. This import task is separate from the initial persistence implementation and does not require the later map-editing UI.
 
 ## Future VRAM layout
 
@@ -158,7 +168,7 @@ The layout and priority ordering follow the [SNES background documentation](http
 
 ## Implementation sequence
 
-1. Add the area `world` field, populate existing areas, and add persistence for the map assets and per-layer map edits without modifying randomizer catalogs or ROM code.
+1. Completed: add the area `world` field, populate existing areas, and add persistence for the map assets and per-layer map edits without modifying randomizer catalogs or ROM code. The ROM importer assigns worlds, and all 425 existing `ALTTPRetiling` area files now have the field, including special-world classification for the template areas.
 2. Extend the palette editing modal with map-world selection, keep map palettes in the existing Palette selector, and add tile intended-use editing and allocation budget counts. Reuse the existing palette and graphics editing functionality, including tile priority, and expose world selection in the area dialogs.
 3. Add the selected room's map canvas below the Layers panel's layer list, tied to the selected layer and its condition preview, with normal selection and undo operations, intended-use mismatch highlighting, and composed visible layers.
 4. Add the Tools menu, move Conditions and Dynamic tiles into it, and open cloud editing from it in the main canvas. Add the two cloud tilemaps with mismatch highlighting, a 256×224 editable canvas, and the terrain-footprint outline underneath opaque cloud pixels. Restore the area editing context when leaving clouds.

@@ -14,7 +14,7 @@ use crate::{
         AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering, ColorRGB,
         ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant,
         DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile, TileIdx, TilePixels,
-        TilePlacement,
+        TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -648,6 +648,9 @@ impl<'a> Importer<'a> {
 
         let mut pal_by_colors: HashMap<[ColorRGB; 16], PaletteId> = HashMap::new();
         for pal in &self.state.palettes {
+            if pal.map_world.is_some() {
+                continue;
+            }
             let mut colors = pal.colors;
             colors[0] = [0, 0, 0];
             let _ = pal_by_colors.try_insert(colors, pal.id);
@@ -672,6 +675,7 @@ impl<'a> Importer<'a> {
                             modified: true,
                             name,
                             id: next_id,
+                            map_world: None,
                             colors,
                             tiles: vec![],
                             animated_tile_groups: vec![],
@@ -1109,6 +1113,11 @@ impl<'a> Importer<'a> {
                 name: area_name,
                 theme: self.theme.clone(),
                 vanilla_map_id: Some(parent as u8),
+                world: match parent {
+                    0x00..=0x3F => World::Light,
+                    0x40..=0x7F => World::Dark,
+                    _ => World::Special,
+                },
                 other_world_area,
                 bg_color,
                 bg_layering,
@@ -1122,6 +1131,7 @@ impl<'a> Importer<'a> {
                     condition: String::new(),
                     name: "Main".to_string(),
                     background: Background::Bg2,
+                    map: None,
                     tiles: vec![
                         vec![Some(TilePlacement::default()); size.0 as usize * 64];
                         size.1 as usize * 64
@@ -1227,6 +1237,7 @@ impl<'a> Importer<'a> {
                                         };
                                         let tile = Tile {
                                             id: None,
+                                            map_use: None,
                                             priority: t8.priority,
                                             h_flippable: false,
                                             v_flippable: false,
@@ -1341,6 +1352,7 @@ impl<'a> Importer<'a> {
                         condition: String::new(),
                         name: name.to_string(),
                         background: Background::Bg1,
+                        map: None,
                         tiles,
                     },
                 );
@@ -1376,6 +1388,7 @@ impl<'a> Importer<'a> {
                     condition: String::new(),
                     name: name.to_string(),
                     background: Background::Bg2,
+                    map: None,
                     tiles,
                 });
             }
@@ -1537,6 +1550,7 @@ impl<'a> Importer<'a> {
                 condition: String::new(),
                 name,
                 background: Background::Bg2,
+                map: None,
                 tiles,
             });
         }
@@ -2132,6 +2146,9 @@ impl<'a> Importer<'a> {
 
     fn ensure_palette_full_rows(&mut self) -> Result<()> {
         for pal in &mut self.state.palettes {
+            if pal.map_world.is_some() {
+                continue;
+            }
             let size = (pal.tiles.len().div_ceil(16) * 16).max(16);
             pal.tiles.resize(size, Tile::default());
             pal.modified = true;

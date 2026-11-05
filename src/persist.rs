@@ -21,7 +21,8 @@ use crate::{
     state::{
         ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty,
         is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering,
-        DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, TileIdx, TilePlacement,
+        DynamicTiles, EditorState, Flip, Layer, MapWorld, OverworldMap, Palette, PaletteId,
+        TileIdx, TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -121,6 +122,125 @@ fn save_dynamic_tiles(state: &mut EditorState) -> Result<()> {
         save_json(&get_dynamic_tiles_path(state)?, &state.dynamic_tiles)?;
         state.dynamic_tiles.modified = false;
         state.enable_watch_file_changes()?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredMap {
+    palettes: Vec<Vec<Option<PaletteId>>>,
+    tiles: Vec<Vec<Option<TileIdx>>>,
+    flips: Vec<Vec<Option<Flip>>>,
+}
+
+fn decode_map_tiles(
+    stored: StoredMap,
+    width: usize,
+    height: usize,
+) -> Result<Vec<Vec<Option<TilePlacement>>>> {
+    if stored.palettes.len() != height
+        || stored.tiles.len() != height
+        || stored.flips.len() != height
+    {
+        bail!("invalid map height");
+    }
+    let mut tiles = vec![vec![None; width]; height];
+    for y in 0..height {
+        if stored.palettes[y].len() != width
+            || stored.tiles[y].len() != width
+            || stored.flips[y].len() != width
+        {
+            bail!("invalid map row width");
+        }
+        for x in 0..width {
+            tiles[y][x] = match (
+                stored.palettes[y][x],
+                stored.tiles[y][x],
+                stored.flips[y][x],
+            ) {
+                (Some(palette), Some(tile), Some(flip)) => Some(TilePlacement {
+                    palette,
+                    tile,
+                    flip,
+                }),
+                (None, None, None) => None,
+                _ => bail!("mismatched transparent map cell"),
+            };
+        }
+    }
+    Ok(tiles)
+}
+
+fn encode_map_tiles(tiles: &[Vec<Option<TilePlacement>>]) -> StoredMap {
+    let mut stored = StoredMap {
+        palettes: vec![],
+        tiles: vec![],
+        flips: vec![],
+    };
+    for row in tiles {
+        let mut palettes = Vec::new();
+        let mut tiles = Vec::new();
+        let mut flips = Vec::new();
+        for placement in row {
+            palettes.push(placement.map(|placement| placement.palette));
+            tiles.push(placement.map(|placement| placement.tile));
+            flips.push(placement.map(|placement| placement.flip));
+        }
+        stored.palettes.push(palettes);
+        stored.tiles.push(tiles);
+        stored.flips.push(flips);
+    }
+    stored
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredOverworldMap {
+    bg_color: [u8; 3],
+    clouds: StoredMap,
+}
+
+fn load_overworld_maps(state: &mut EditorState) -> Result<()> {
+    let dir = get_project_dir(state)?.join("OverworldMap");
+    state.overworld_maps.clear();
+    for (world, name) in [(MapWorld::Light, "light"), (MapWorld::Dark, "dark")] {
+        let path = dir.join(format!("{name}.json"));
+        let map = if path.exists() {
+            let stored: StoredOverworldMap = load_json(&path)?;
+            OverworldMap {
+                modified: false,
+                bg_color: stored.bg_color,
+                clouds: decode_map_tiles(stored.clouds, 32, 28)
+                    .with_context(|| format!("invalid clouds in {}", path.display()))?,
+            }
+        } else {
+            OverworldMap::default()
+        };
+        state.overworld_maps.insert(world, map);
+    }
+    Ok(())
+}
+
+fn save_overworld_maps(state: &mut EditorState) -> Result<()> {
+    let dir = get_project_dir(state)?.join("OverworldMap");
+    for (world, name) in [(MapWorld::Light, "light"), (MapWorld::Dark, "dark")] {
+        let Some(map) = state.overworld_maps.get(&world) else {
+            continue;
+        };
+        if !map.modified {
+            continue;
+        }
+        let stored = StoredOverworldMap {
+            bg_color: map.bg_color,
+            clouds: encode_map_tiles(&map.clouds),
+        };
+        let watch_was_enabled = state.watch_enabled;
+        state.disable_watch_file_changes()?;
+        let result = save_json(&dir.join(format!("{name}.json")), &stored);
+        if watch_was_enabled {
+            state.enable_watch_file_changes()?;
+        }
+        result?;
+        state.overworld_maps.get_mut(&world).unwrap().modified = false;
     }
     Ok(())
 }
@@ -354,6 +474,7 @@ pub fn load_area_list(state: &mut EditorState) -> Result<()> {
 
 #[derive(Serialize, Deserialize)]
 struct StoredArea {
+    world: World,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     other_world_area: Option<String>,
     vanilla_map_id: Option<u8>,
@@ -383,6 +504,8 @@ struct StoredLayer {
     condition: String,
     background: Background,
     screens: Vec<StoredScreen>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    map: Option<StoredMap>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -483,6 +606,17 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
             condition: stored_layer.condition,
             background: stored_layer.background,
             tiles,
+            map: match stored_layer.map {
+                Some(map) => Some(
+                    decode_map_tiles(
+                        map,
+                        stored.size.0 as usize * 3 / 2,
+                        stored.size.1 as usize * 3 / 2,
+                    )
+                    .context("invalid room map")?,
+                ),
+                None => None,
+            },
         });
     }
     if layers.is_empty() {
@@ -497,6 +631,7 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
         name: area_id.area.clone(),
         theme: area_id.theme.clone(),
         vanilla_map_id: stored.vanilla_map_id,
+        world: stored.world,
         other_world_area: stored.other_world_area,
         bg_color: stored.bg_color,
         bg_layering: stored.bg_layering,
@@ -704,14 +839,25 @@ pub fn save_area_json(state: &mut EditorState, area_id: &AreaId) -> Result<()> {
                 });
             }
         }
+        let mut map = None;
+        if let Some(tiles) = &layer.map {
+            for row in tiles {
+                if row.iter().any(Option::is_some) {
+                    map = Some(encode_map_tiles(tiles));
+                    break;
+                }
+            }
+        }
         stored_layers.push(StoredLayer {
             name: layer.name.clone(),
             condition: layer.condition.clone(),
             background: layer.background,
             screens,
+            map,
         });
     }
     let stored = StoredArea {
+        world: area.world,
         other_world_area: area.other_world_area.clone(),
         vanilla_map_id: area.vanilla_map_id,
         bg_color: area.bg_color,
@@ -892,6 +1038,20 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
                         out.insert((placement.palette, placement.tile));
                     }
                 }
+                if let Some(tiles) = &layer.map {
+                    for row in tiles {
+                        for placement in row.iter().flatten() {
+                            out.insert((placement.palette, placement.tile));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for map in state.overworld_maps.values() {
+        for row in &map.clouds {
+            for placement in row.iter().flatten() {
+                out.insert((placement.palette, placement.tile));
             }
         }
     }
@@ -912,6 +1072,24 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
         }
     }
     Ok(out)
+}
+
+fn remap_grid_tiles(
+    tiles: &mut [Vec<Option<TilePlacement>>],
+    map: &HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)>,
+) -> bool {
+    let mut modified = false;
+    for row in tiles {
+        for placement in row.iter_mut().flatten() {
+            if let Some(&(palette, tile, flip)) = map.get(&(placement.palette, placement.tile)) {
+                placement.palette = palette;
+                placement.tile = tile;
+                placement.flip = flip.apply_to_flip(placement.flip);
+                modified = true;
+            }
+        }
+    }
+    modified
 }
 
 pub fn remap_tiles(
@@ -941,11 +1119,18 @@ pub fn remap_tiles(
                         }
                     }
                 }
+                if let Some(tiles) = &mut layer.map {
+                    area.modified |= remap_grid_tiles(tiles, map);
+                }
             }
             state.areas.insert(area_id.clone(), area);
             save_area(state, &area_id)?;
             state.cleanup_areas()?;
         }
+    }
+
+    for overworld_map in state.overworld_maps.values_mut() {
+        overworld_map.modified |= remap_grid_tiles(&mut overworld_map.clouds, map);
     }
 
     let mut dynamic_tiles_modified = false;
@@ -990,6 +1175,7 @@ pub fn save_project(state: &mut EditorState) -> Result<()> {
     save_global_config(state)?;
     save_palettes(state)?;
     save_dynamic_tiles(state)?;
+    save_overworld_maps(state)?;
     save_area(state, &state.main_area_id.clone())?;
     save_area(state, &state.side_area_id.clone())?;
     Ok(())
@@ -1058,6 +1244,7 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.slot_aliases = conditions.slot_aliases;
     load_palettes(state)?;
     load_dynamic_tiles(state)?;
+    load_overworld_maps(state)?;
     load_area_list(state)?;
     let area_id = AreaId {
         area: state.area_names[0].clone(),

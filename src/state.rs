@@ -169,6 +169,45 @@ pub struct TilePlacement {
     pub flip: Flip,
 }
 
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum World {
+    Light,
+    Dark,
+    Special,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum MapWorld {
+    Light,
+    Dark,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum MapUse {
+    Terrain,
+    Clouds,
+}
+
+#[derive(Clone, Debug)]
+pub struct OverworldMap {
+    pub modified: bool,
+    pub bg_color: ColorRGB,
+    pub clouds: Vec<Vec<Option<TilePlacement>>>,
+}
+
+impl Default for OverworldMap {
+    fn default() -> Self {
+        Self {
+            modified: false,
+            bg_color: [0; 3],
+            clouds: vec![vec![None; 32]; 28],
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DynamicTileTarget {
     Before,
@@ -209,6 +248,8 @@ pub struct AreaId {
 #[derive(Copy, Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, Hash)]
 pub struct Tile {
     pub id: Option<TileIdx>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_use: Option<MapUse>,
     pub priority: bool,
     pub collision: CollisionType,
     pub h_flippable: bool,
@@ -231,6 +272,8 @@ pub struct Palette {
     #[serde(skip_serializing, skip_deserializing)]
     pub name: String,
     pub id: PaletteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_world: Option<MapWorld>,
     pub colors: [ColorRGB; 16],
     pub tiles: Vec<Tile>,
     #[serde(default)]
@@ -419,6 +462,7 @@ pub struct Layer {
     pub name: String,
     pub background: Background,
     pub tiles: Vec<Vec<Option<TilePlacement>>>,
+    pub map: Option<Vec<Vec<Option<TilePlacement>>>>,
 }
 
 pub struct Area {
@@ -426,6 +470,7 @@ pub struct Area {
     pub name: AreaName,
     pub theme: ThemeName,
     pub vanilla_map_id: Option<u8>,
+    pub world: World,
     pub other_world_area: Option<AreaName>,
     pub bg_color: ColorRGB,
     pub bg_layering: BackgroundLayering,
@@ -589,6 +634,7 @@ pub struct EditorState {
     // to limit memory usage and start-up time. Everything else is fully loaded.
     pub palettes: Vec<Palette>,
     pub dynamic_tiles: DynamicTiles,
+    pub overworld_maps: BTreeMap<MapWorld, OverworldMap>,
     pub edge_variants: Vec<String>,
     pub edge_variant_aliases: BTreeMap<String, Vec<String>>,
     pub slot_aliases: BTreeMap<String, String>,
@@ -879,6 +925,7 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
             name: "Example".to_string(),
             theme: "Base".to_string(),
             vanilla_map_id: None,
+            world: World::Light,
             other_world_area: None,
             bg_color: [0; 3],
             bg_layering: BackgroundLayering::None,
@@ -893,6 +940,7 @@ pub fn ensure_areas_non_empty(state: &mut EditorState) -> Result<()> {
                 name: "Main".to_string(),
                 background: Background::Bg2,
                 tiles: vec![vec![Some(TilePlacement::default()); 64]; 64],
+                map: None,
             }],
         };
         state.set_area(AreaPosition::Main, area)?;
@@ -908,6 +956,7 @@ pub fn ensure_palettes_non_empty(state: &mut EditorState) {
             tiles: vec![
                 Tile {
                     id: None,
+                    map_use: None,
                     priority: false,
                     collision: 0,
                     h_flippable: true,
@@ -929,6 +978,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         rom_path: None,
         palettes: vec![],
         dynamic_tiles: DynamicTiles::default(),
+        overworld_maps: BTreeMap::new(),
         edge_variants: vec![],
         edge_variant_aliases: BTreeMap::new(),
         slot_aliases: BTreeMap::new(),

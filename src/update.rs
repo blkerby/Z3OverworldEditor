@@ -1453,6 +1453,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                         theme,
                         size: *size,
                         vanilla_map_id: None,
+                        world: state.main_area().world,
                         other_world_area: None,
                         bg_color: state.areas[&state.main_area_id].bg_color,
                         bg_layering: BackgroundLayering::None,
@@ -1465,6 +1466,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             condition: "true".to_string(),
                             name: "Main".to_string(),
                             background: Background::Bg2,
+                            map: None,
                             tiles: vec![
                                 vec![Some(TilePlacement::default()); size.0 as usize * 32];
                                 size.1 as usize * 32
@@ -1703,6 +1705,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     condition: "true".to_string(),
                     name,
                     background: Background::Bg2,
+                    map: None,
                     tiles: vec![vec![None; area.size.0 as usize * 32]; area.size.1 as usize * 32],
                 },
             );
