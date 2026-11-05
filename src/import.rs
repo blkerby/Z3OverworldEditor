@@ -13,8 +13,8 @@ use crate::{
     state::{
         get_cloud_world, AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering,
         ColorRGB, ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType,
-        DynamicTileVariant, DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile,
-        TileIdx, TilePixels, TilePlacement, World,
+        DynamicTileVariant, DynamicTiles, EditorState, Flip, Layer, MapUse, Palette, PaletteId,
+        Tile, TileIdx, TilePixels, TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -2158,11 +2158,12 @@ impl<'a> Importer<'a> {
 
     fn ensure_palette_full_rows(&mut self) -> Result<()> {
         for pal in &mut self.state.palettes {
+            let mut blank = Tile::default();
             if pal.map_world.is_some() {
-                continue;
+                blank.map_use = Some(MapUse::Terrain);
             }
             let size = (pal.tiles.len().div_ceil(16) * 16).max(16);
-            pal.tiles.resize(size, Tile::default());
+            pal.tiles.resize(size, blank);
             pal.modified = true;
         }
         Ok(())
