@@ -20,6 +20,8 @@ use crate::{
 };
 use serde_json::{json, Value};
 
+mod world_map;
+
 const ANIMATED_TILE_START: u16 = 0x1C0;
 const ANIMATED_TILE_COUNT: u16 = 32;
 const AREA_MAP_COUNT: u32 = 0x90;
@@ -194,6 +196,7 @@ struct Constants {
     us_map16: bool,
     grave_tilemap_addr: SnesAddr,
     grave_reveal_addr: SnesAddr,
+    world_map_addr: SnesAddr,
 }
 
 impl Constants {
@@ -229,6 +232,7 @@ impl Constants {
             us_map16: false,
             grave_tilemap_addr: SnesAddr(0x099990),
             grave_reveal_addr: SnesAddr(0x0999AE),
+            world_map_addr: SnesAddr(0x0AC739),
         }
     }
 
@@ -264,6 +268,7 @@ impl Constants {
             us_map16: true,
             grave_tilemap_addr: SnesAddr(0x0999A4),
             grave_reveal_addr: SnesAddr(0x0999C2),
+            world_map_addr: SnesAddr(0x0AC727),
         }
     }
 
@@ -582,6 +587,7 @@ impl<'a> Importer<'a> {
     }
 
     fn import_all(&mut self) -> Result<()> {
+        world_map::import_world_map_palettes(&self.rom, &self.constants, &mut self.state.palettes)?;
         let starting_palette_id = self.state.palettes.iter().map(|x| x.id).max().unwrap() + 1;
         self.load_area_names()?;
         self.load_tile_types()?;

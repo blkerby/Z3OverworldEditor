@@ -148,6 +148,10 @@ For each world, collect each tile's distinct opaque colors and group tiles into 
 
 Report the resulting palette and tile counts for each world, and verify the converted graphics against the source pixels. Add the converted palettes and tiles to `ALTTPRetiling` using unused palette IDs and distinct names, preserving existing artwork. This import task is separate from the initial persistence implementation and does not require the later map-editing UI.
 
+Completed: the importer supports the Japanese and US vanilla layouts, and the assets have been added to `~/ALTTPRetiling` without changing existing files. Exact palette packing produces six palettes for 223 Light World tiles and six palettes for 208 Dark World tiles; five palettes cannot represent either world's artwork losslessly. Include the shared outer border, which the Dark World retains from the Light World tilemap, using each world's colors. Imported palette names are `Light World Map 1` through `6` and `Dark World Map 1` through `6`.
+
+Follow the existing importer's matching behavior within each world: reuse palettes with matching opaque colors and matching tiles, append missing artwork, and preserve edited assets. Reject imports that would exceed the world's palette or terrain budgets without changing existing palettes. Pixel comparisons, JP/US equivalence, repeat imports, preservation of edits, save/reload, and the full ROM-import workflow have been verified on copied projects; temporary verification code was removed.
+
 ## Future VRAM layout
 
 Load only the selected world's assets. Light and dark worlds reuse the same addresses. The following layout reserves the full graphics capacities while leaving 12 KiB unused; palette data resides separately in CGRAM.
