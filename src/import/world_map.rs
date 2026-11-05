@@ -3,7 +3,14 @@ use std::cmp::Reverse;
 use hashbrown::HashSet;
 
 use super::{strip_tile, Constants, PcAddr, Rom, SnesAddr};
-use crate::state::{MapUse, MapWorld, Palette, Tile};
+use crate::{
+    persist::{save_area_json, save_area_png},
+    state::{
+        Area, AreaPosition, Background, BackgroundLayering, EditorState, Layer, MapUse, MapWorld,
+        Palette, Tile, TilePlacement, World,
+    },
+    update::update_palette_order,
+};
 use anyhow::{ensure, Context, Result};
 use log::info;
 
@@ -129,16 +136,25 @@ fn pack_palette_colors(tile_colors: &[u128]) -> Result<Vec<u128>> {
     anyhow::bail!("Mode 7 map graphics require more than eight 4bpp palettes")
 }
 
-pub(super) fn import_world_map_palettes(
+pub(super) fn import_world_maps(
     rom: &Rom,
     constants: &Constants,
-    palettes: &mut Vec<Palette>,
+    state: &mut EditorState,
+    theme: &str,
 ) -> Result<()> {
+    let project_dir = state
+        .global_config
+        .project_dir
+        .as_ref()
+        .context("Project directory not set")?
+        .clone();
+    let palettes = &mut state.palettes;
     let gfx = rom.read_n(SnesAddr(0x18C000).into(), 0x4000)?;
     let map_addr: PcAddr = constants.world_map_addr.into();
     let light_map = rom.read_n(map_addr, 0x1000)?;
     let dark_map = rom.read_n(map_addr + 0x1000, 0x400)?;
     let mut imported = Vec::new();
+    let mut areas = Vec::new();
     let mut next_id = palettes.iter().map(|p| p.id).max().unwrap_or(0) as u32 + 1;
 
     for (world, name, palette_offset) in [
@@ -146,6 +162,7 @@ pub(super) fn import_world_map_palettes(
         (MapWorld::Dark, "Dark", 0x100),
     ] {
         let mut used = [false; 256];
+        let mut map_tiles = [[0u8; 64]; 64];
         used[0xEF] = true; // Vanilla fills the rest of the 128×128 map with this tile.
         for y in 0..64 {
             for x in 0..64 {
@@ -157,6 +174,7 @@ pub(super) fn import_world_map_palettes(
                         light_map[(y / 32 * 2 + x / 32) * 1024 + y % 32 * 32 + x % 32]
                     };
                 used[tile as usize] = true;
+                map_tiles[y][x] = tile;
             }
         }
         let mut source_colors = [0u16; 128];
@@ -171,6 +189,7 @@ pub(super) fn import_world_map_palettes(
             color_bits[i] = 1 << colors.binary_search(&source_colors[i]).unwrap();
         }
         let mut source_tiles = Vec::new();
+        let mut source_ids = Vec::new();
         let mut tile_colors = Vec::new();
         for (id, &is_used) in used.iter().enumerate() {
             if !is_used {
@@ -190,6 +209,7 @@ pub(super) fn import_world_map_palettes(
                 "{name} World map tile {id:02X} needs more than fifteen opaque colors"
             );
             source_tiles.push(pixels);
+            source_ids.push(id);
             tile_colors.push(mask);
         }
         let packed =
@@ -254,7 +274,8 @@ pub(super) fn import_world_map_palettes(
             "Import would exceed eight {name} World map palettes; existing artwork was preserved"
         );
         let mut added_tiles = 0;
-        for (pixels, mask) in source_tiles.iter().zip(&tile_colors) {
+        let mut placements = [TilePlacement::default(); 256];
+        for (i, (pixels, mask)) in source_tiles.iter().zip(&tile_colors).enumerate() {
             let palette_idx = packed
                 .iter()
                 .position(|colors| colors & mask == *mask)
@@ -267,15 +288,23 @@ pub(super) fn import_world_map_palettes(
             for (i, &pixel) in pixels.iter().enumerate() {
                 tile.pixels[i / 8][i % 8] = remaps[palette_idx][pixel as usize];
             }
-            if !palette
+            let tile_idx = if let Some(index) = palette
                 .tiles
                 .iter()
-                .any(|&existing| strip_tile(existing) == tile)
+                .position(|&existing| strip_tile(existing) == tile)
             {
+                index
+            } else {
                 palette.tiles.push(tile);
                 palette.modified = true;
                 added_tiles += 1;
-            }
+                palette.tiles.len() - 1
+            };
+            placements[source_ids[i]] = TilePlacement {
+                palette: palette.id,
+                tile: tile_idx as u16,
+                ..TilePlacement::default()
+            };
         }
         let mut terrain_count = added_tiles;
         for palette in palettes.iter() {
@@ -293,6 +322,64 @@ pub(super) fn import_world_map_palettes(
         );
         info!("{name} World map: {} source tiles in {} palettes; added {new_count} palettes and {added_tiles} tiles", source_tiles.len(), packed.len());
         imported.extend(world_palettes);
+        let mut tiles = vec![vec![None; 64]; 64];
+        for y in 0..64 {
+            for x in 0..64 {
+                tiles[y][x] = Some(placements[map_tiles[y][x] as usize]);
+            }
+        }
+        let area_name = format!("{name} World Map");
+        for area_theme in &state.theme_names {
+            // New areas need every theme; later imports replace only the selected theme.
+            if area_theme != theme
+                && project_dir
+                    .join("Areas")
+                    .join(&area_name)
+                    .join(format!("{area_theme}.json"))
+                    .exists()
+            {
+                continue;
+            }
+            let color = source_colors[0];
+            areas.push(Area {
+                modified: true,
+                name: area_name.clone(),
+                theme: area_theme.clone(),
+                vanilla_map_id: None,
+                world: if world == MapWorld::Light {
+                    World::Light
+                } else {
+                    World::Dark
+                },
+                other_world_area: Some(
+                    if world == MapWorld::Light {
+                        "Dark World Map"
+                    } else {
+                        "Light World Map"
+                    }
+                    .to_owned(),
+                ),
+                bg_color: [
+                    (color & 31) as u8,
+                    ((color >> 5) & 31) as u8,
+                    (color >> 10) as u8,
+                ],
+                bg_layering: BackgroundLayering::None,
+                bg_camera_follow_x: 1.0,
+                bg_camera_drift_x: 0.0,
+                bg_camera_follow_y: 1.0,
+                bg_camera_drift_y: 0.0,
+                size: (2, 2),
+                layers: vec![Layer {
+                    modified: true,
+                    name: "Main".to_owned(),
+                    condition: String::new(),
+                    background: Background::Bg2,
+                    tiles: tiles.clone(),
+                    map: None,
+                }],
+            });
+        }
     }
     // Commit only after both worlds convert successfully.
     for palette in imported {
@@ -302,5 +389,17 @@ pub(super) fn import_world_map_palettes(
             palettes.push(palette);
         }
     }
+    update_palette_order(state);
+    for area in areas {
+        let id = area.id();
+        if !state.area_names.contains(&area.name) {
+            state.area_names.push(area.name.clone());
+        }
+        state.set_area(AreaPosition::Main, area)?;
+        save_area_json(state, &id)?;
+        save_area_png(state, &id)?;
+        state.areas.get_mut(&id).unwrap().modified = false;
+    }
+    state.area_names.sort();
     Ok(())
 }

@@ -140,7 +140,7 @@ Do not redesign existing gameplay palettes or add a separate general-purpose ass
 
 ## Vanilla map graphics import
 
-As a follow-up to the persistence foundation in step 1, extend the ROM importer to extract the vanilla Mode 7 overworld map palettes and graphics and convert them into the editor's palette-owned 4bpp map tiles. Also import these assets into the existing project at `~/ALTTPRetiling`. Import only palettes and their corresponding graphics tiles, not room/layer map placements or cloud tilemaps. Mark the imported palettes with the appropriate `map_world` and their tiles with `map_use: "terrain"`.
+As a follow-up to the persistence foundation in step 1, extend the ROM importer to extract the vanilla Mode 7 overworld map palettes and graphics and convert them into the editor's palette-owned 4bpp map tiles. Also import these assets into the existing project at `~/ALTTPRetiling`. Import palettes, their corresponding graphics tiles, and the reference areas described below; defer per-room map artwork and cloud-editor tilemaps. Mark the imported palettes with the appropriate `map_world` and their tiles with `map_use: "terrain"`.
 
 Keep light-world and dark-world palette groups separate, even where the vanilla game shares graphics. Determine the graphics used by each world's vanilla map and interpret them using that world's colors. Preserve pixel colors and transparency during conversion; the assumption that each tile can be converted losslessly must be checked before importing.
 
@@ -151,6 +151,10 @@ Report the resulting palette and tile counts for each world, and verify the conv
 Completed: the importer supports the Japanese and US vanilla layouts, and the assets have been added to `~/ALTTPRetiling` without changing existing files. Exact palette packing produces six palettes for 223 Light World tiles and six palettes for 208 Dark World tiles; five palettes cannot represent either world's artwork losslessly. Include the shared outer border, which the Dark World retains from the Light World tilemap, using each world's colors. Imported palette names are `Light World Map 1` through `6` and `Dark World Map 1` through `6`.
 
 Follow the existing importer's matching behavior within each world: reuse palettes with matching opaque colors and matching tiles, append missing artwork, and preserve edited assets. Reject imports that would exceed the world's palette or terrain budgets without changing existing palettes. Pixel comparisons, JP/US equivalence, repeat imports, preservation of edits, save/reload, and the full ROM-import workflow have been verified on copied projects; temporary verification code was removed.
+
+Import the assembled vanilla tilemaps into two ordinary reference/template areas named `Light World Map` and `Dark World Map`, with the corresponding `world`, no `vanilla_map_id`, and reciprocal `other_world_area` links. Each uses `size: [2, 2]` and one ordinary BG2 layer named `Main`, containing the 64×64-tile map including its outer border. The Dark World replaces the central 32×32 tiles of the Light World layout and retains the border. Placements reference the imported palettes and tiles without duplicating graphics. Leave the layer's room-level `map` field absent. Create missing theme files for both areas, matching normal area creation; subsequent ROM imports replace the selected theme's reference maps while preserving existing reference maps in other themes. These canvases preserve vanilla's scale for editing and copying; adapting its 4×4 tiles per small room to the planned 3×3 artwork remains manual.
+
+Completed: both reference areas have been added to all five themes in `~/ALTTPRetiling`, with their layer PNGs and reciprocal world links. Saved placements and PNGs were checked pixel-for-pixel against the ROM, along with save/reload, JP/US imports, reuse or creation of map palettes, preservation of other themes, and the full ROM-import workflow.
 
 ## Future VRAM layout
 

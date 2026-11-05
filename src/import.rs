@@ -587,7 +587,7 @@ impl<'a> Importer<'a> {
     }
 
     fn import_all(&mut self) -> Result<()> {
-        world_map::import_world_map_palettes(&self.rom, &self.constants, &mut self.state.palettes)?;
+        world_map::import_world_maps(&self.rom, &self.constants, self.state, &self.theme)?;
         let starting_palette_id = self.state.palettes.iter().map(|x| x.id).max().unwrap() + 1;
         self.load_area_names()?;
         self.load_tile_types()?;
