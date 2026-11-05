@@ -12,6 +12,7 @@ use crate::state::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SelectionSource {
     Area(AreaPosition),
+    RoomMap,
     Tileset,
     DynamicTiles {
         kind: DynamicTileType,
@@ -265,13 +266,14 @@ pub enum Message {
     },
     DeleteThemeDialogue,
     DeleteTheme(String),
-    HoverArea(Point<TileCoord>),
-    HoverAreaEnd,
+    HoverArea(Point<TileCoord>, SelectionSource),
+    HoverAreaEnd(SelectionSource),
     StartTileSelection(Point<TileCoord>, SelectionSource),
     ProgressTileSelection(Point<TileCoord>),
     EndTileSelection(Point<TileCoord>),
     AreaBrush {
         position: AreaPosition,
+        room_map: bool,
         area_id: AreaId,
         layer_idx: usize,
         coords: Point<TileCoord>,
@@ -280,6 +282,7 @@ pub enum Message {
     },
     AreaErase {
         position: AreaPosition,
+        room_map: bool,
         area_id: AreaId,
         layer_idx: usize,
         coords: Point<TileCoord>,

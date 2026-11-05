@@ -46,6 +46,9 @@ const CAMERA_FOLLOW_OPTIONS: [CameraFollow; 5] = [
 
 struct AreaGrid<'a> {
     position: AreaPosition,
+    room_map: bool,
+    source: SelectionSource,
+    grid_size: (TileCoord, TileCoord),
     area_id: AreaId,
     area: &'a Area,
     selected_layer_idx: usize,
@@ -83,7 +86,7 @@ struct InternalState {
 fn clamped_position_in(
     p: Point,
     bounds: iced::Rectangle,
-    size: (u8, u8),
+    size: (TileCoord, TileCoord),
     pixel_size: f32,
     snap_grid_16: bool,
 ) -> Point<TileCoord> {
@@ -91,13 +94,13 @@ fn clamped_position_in(
     let y = f32::max(p.y - bounds.y - 1.0 - pixel_size / 2.0, 0.0) / (8.0 * pixel_size);
     if snap_grid_16 {
         Point {
-            x: ((x / 2.0) as TileCoord * 2).min(size.0 as TileCoord * 32 - 2),
-            y: ((y / 2.0) as TileCoord * 2).min(size.1 as TileCoord * 32 - 2),
+            x: ((x / 2.0) as TileCoord * 2).min(size.0 - 2),
+            y: ((y / 2.0) as TileCoord * 2).min(size.1 - 2),
         }
     } else {
         Point {
-            x: (x as TileCoord).min(size.0 as TileCoord * 32 - 1),
-            y: (y as TileCoord).min(size.1 as TileCoord * 32 - 1),
+            x: (x as TileCoord).min(size.0 - 1),
+            y: (y as TileCoord).min(size.1 - 1),
         }
     }
 }
@@ -112,11 +115,12 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
         bounds: iced::Rectangle,
         cursor: mouse::Cursor,
     ) -> (canvas::event::Status, Option<Message>) {
+        let was_hovered = state.coords.is_some();
         if let Some(p) = cursor.position_over(bounds) {
             state.coords = Some(clamped_position_in(
                 p,
                 bounds,
-                self.area.size,
+                self.grid_size,
                 self.pixel_size,
                 self.snap_grid_16,
             ));
@@ -133,7 +137,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 let coords = clamped_position_in(
                                     p,
                                     bounds,
-                                    self.area.size,
+                                    self.grid_size,
                                     self.pixel_size,
                                     self.snap_grid_16,
                                 );
@@ -141,6 +145,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     canvas::event::Status::Captured,
                                     Some(Message::AreaBrush {
                                         position: self.position,
+                                        room_map: self.room_map,
                                         area_id: self.area_id.clone(),
                                         layer_idx: self.selected_layer_idx,
                                         coords,
@@ -155,12 +160,13 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                     canvas::event::Status::Captured,
                                     Some(Message::AreaErase {
                                         position: self.position,
+                                        room_map: self.room_map,
                                         area_id: self.area_id.clone(),
                                         layer_idx: self.selected_layer_idx,
                                         coords: clamped_position_in(
                                             p,
                                             bounds,
-                                            self.area.size,
+                                            self.grid_size,
                                             self.pixel_size,
                                             self.snap_grid_16,
                                         ),
@@ -177,11 +183,11 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                         clamped_position_in(
                                             p,
                                             bounds,
-                                            self.area.size,
+                                            self.grid_size,
                                             self.pixel_size,
                                             self.snap_grid_16,
                                         ),
-                                        crate::message::SelectionSource::Area(self.position),
+                                        self.source,
                                     )),
                                 );
                             }
@@ -197,7 +203,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             clamped_position_in(
                                 p,
                                 bounds,
-                                self.area.size,
+                                self.grid_size,
                                 self.pixel_size,
                                 self.snap_grid_16,
                             )
@@ -214,19 +220,25 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                 }
                 mouse::Event::CursorMoved { .. } => match state.action {
                     InternalStateAction::None => {
-                        if let Some(p) = cursor.position() {
+                        if let Some(p) = cursor.position_over(bounds) {
                             return (
                                 canvas::event::Status::Captured,
-                                Some(Message::HoverArea(clamped_position_in(
-                                    p,
-                                    bounds,
-                                    self.area.size,
-                                    self.pixel_size,
-                                    self.snap_grid_16,
-                                ))),
+                                Some(Message::HoverArea(
+                                    clamped_position_in(
+                                        p,
+                                        bounds,
+                                        self.grid_size,
+                                        self.pixel_size,
+                                        self.snap_grid_16,
+                                    ),
+                                    self.source,
+                                )),
                             );
-                        } else {
-                            return (canvas::event::Status::Ignored, None);
+                        } else if was_hovered {
+                            return (
+                                canvas::event::Status::Ignored,
+                                Some(Message::HoverAreaEnd(self.source)),
+                            );
                         }
                     }
                     InternalStateAction::Selecting => {
@@ -236,13 +248,16 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 Some(Message::ProgressTileSelection(clamped_position_in(
                                     p,
                                     bounds,
-                                    self.area.size,
+                                    self.grid_size,
                                     self.pixel_size,
                                     self.snap_grid_16,
                                 ))),
                             );
                         } else {
-                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::HoverAreaEnd(self.source)),
+                            );
                         }
                     }
                     InternalStateAction::Brushing => {
@@ -250,13 +265,14 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             let coords = clamped_position_in(
                                 p,
                                 bounds,
-                                self.area.size,
+                                self.grid_size,
                                 self.pixel_size,
                                 self.snap_grid_16,
                             );
                             let message = if self.tool == Tool::Erase {
                                 Message::AreaErase {
                                     position: self.position,
+                                    room_map: self.room_map,
                                     area_id: self.area_id.clone(),
                                     layer_idx: self.selected_layer_idx,
                                     coords,
@@ -265,6 +281,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             } else {
                                 Message::AreaBrush {
                                     position: self.position,
+                                    room_map: self.room_map,
                                     area_id: self.area_id.clone(),
                                     layer_idx: self.selected_layer_idx,
                                     coords,
@@ -274,12 +291,18 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             };
                             return (canvas::event::Status::Captured, Some(message));
                         } else {
-                            return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                            return (
+                                canvas::event::Status::Captured,
+                                Some(Message::HoverAreaEnd(self.source)),
+                            );
                         }
                     }
                 },
-                mouse::Event::CursorLeft => {
-                    return (canvas::event::Status::Captured, Some(Message::HoverAreaEnd));
+                mouse::Event::CursorLeft if was_hovered => {
+                    return (
+                        canvas::event::Status::Ignored,
+                        Some(Message::HoverAreaEnd(self.source)),
+                    );
                 }
                 _ => {}
             }
@@ -310,8 +333,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
 
         // Add a pixel of transparent padding around the image, since Iced's
         // "nearest neighbor" filter results in the edge pixels having the wrong size.
-        let num_cols = self.area.size.0 as usize * 256 + 2;
-        let num_rows = self.area.size.1 as usize * 256 + 2;
+        let num_cols = self.grid_size.0 as usize * 8 + 2;
+        let num_rows = self.grid_size.1 as usize * 8 + 2;
         let mut data: Vec<u8> = vec![0; num_rows * num_cols * 4];
         let mut bg1_data = vec![0; data.len()];
         let mut bg2_data = vec![0; data.len()];
@@ -333,11 +356,20 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
             if !visible {
                 continue;
             }
-            let layer_data = match layer.background {
-                Background::Bg1 => &mut bg1_data,
-                Background::Bg2 => &mut bg2_data,
+            let tiles = if self.room_map {
+                let Some(map) = &layer.map else {
+                    continue;
+                };
+                map
+            } else {
+                &layer.tiles
             };
-            for (ty, row) in layer.tiles.iter().enumerate() {
+            let layer_data = if self.room_map || layer.background == Background::Bg2 {
+                &mut bg2_data
+            } else {
+                &mut bg1_data
+            };
+            for (ty, row) in tiles.iter().enumerate() {
                 for (tx, placement) in row.iter().enumerate() {
                     let Some(placement) = placement else {
                         continue;
@@ -411,7 +443,11 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                 }
                 continue;
             }
-            match self.area.bg_layering {
+            match if self.room_map {
+                BackgroundLayering::None
+            } else {
+                self.area.bg_layering
+            } {
                 BackgroundLayering::None => {
                     if bg2_data[addr + 3] != 0 {
                         data[addr..addr + 3].copy_from_slice(&bg2_data[addr..addr + 3]);
@@ -451,8 +487,8 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                 let alpha = 0.75;
                 for ty in 0..self.tile_block.size.1 as usize {
                     for tx in 0..self.tile_block.size.0 as usize {
-                        if tx + base_x as usize >= self.area.size.0 as usize * 32
-                            || ty + base_y as usize >= self.area.size.1 as usize * 32
+                        if tx + base_x as usize >= self.grid_size.0 as usize
+                            || ty + base_y as usize >= self.grid_size.1 as usize
                         {
                             continue;
                         }
@@ -463,6 +499,7 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                             && self
                                 .area
                                 .get_layer_placement(
+                                    self.room_map,
                                     self.selected_layer_idx,
                                     base_x + tx as TileCoord,
                                     base_y + ty as TileCoord,
@@ -480,7 +517,12 @@ impl<'a> canvas::Program<Message> for AreaGrid<'a> {
                                 let y1 = base_y + ty as TileCoord;
                                 let destination = self
                                     .area
-                                    .get_layer_placement(self.selected_layer_idx, x1, y1)
+                                    .get_layer_placement(
+                                        self.room_map,
+                                        self.selected_layer_idx,
+                                        x1,
+                                        y1,
+                                    )
                                     .unwrap()
                                     .unwrap();
                                 let tile_idx = destination.tile;
@@ -700,11 +742,25 @@ impl canvas::Program<Message> for AreaSelect {
     }
 }
 
-pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_, Message> {
+pub fn area_grid_view(
+    state: &EditorState,
+    position: AreaPosition,
+    room_map: bool,
+) -> Element<'_, Message> {
     let area = state.area(position);
-    let num_cols = area.size.0 * 32;
-    let num_rows = area.size.1 * 32;
-    let pixel_size = state.global_config.pixel_size;
+    let (num_cols, num_rows) = area.get_grid_size(room_map);
+    let pixel_size = if room_map {
+        (224.0 / (num_cols.max(num_rows).max(8) as f32 * 8.0 + 2.0))
+            .floor()
+            .max(1.0)
+    } else {
+        state.global_config.pixel_size
+    };
+    let source = if room_map {
+        SelectionSource::RoomMap
+    } else {
+        SelectionSource::Area(position)
+    };
 
     let mut left = 0;
     let mut right = 0;
@@ -723,53 +779,63 @@ pub fn area_grid_view(state: &EditorState, position: AreaPosition) -> Element<'_
         bottom += 1;
     }
 
+    let grid = stack![
+        canvas(AreaGrid {
+            position,
+            room_map,
+            source,
+            grid_size: (num_cols, num_rows),
+            area_id: state.area_id(position).clone(),
+            area: state.area(position),
+            selected_layer_idx: state.selected_layer_idx(position),
+            visible_layers: if state.preview_conditions {
+                &state.preview_visible_layers
+            } else {
+                &state.visible_layers
+            },
+            palettes: &state.palettes,
+            palettes_id_idx_map: &state.palettes_id_idx_map,
+            pixel_size,
+            end_coords: state.end_coords,
+            // thickness: 1.0,
+            palette_only_brush: state.shift_brush,
+            tile_block: &state.selected_tile_block,
+            identify_tile: state.identify_tile,
+            palette_idx: state.palette_idx,
+            tile_idx: state.tile_idx,
+            identify_color: state.identify_color,
+            color_idx: state.color_idx,
+            tool: state.tool,
+            snap_grid_16: state.snap_grid_16,
+        })
+        .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
+        .height((num_rows as f32 * 8.0 + 2.0) * pixel_size),
+        canvas(AreaSelect {
+            selecting_active: state.selection_source == source
+                && state.start_coords.is_some()
+                && state.end_coords.is_some(),
+            left,
+            right,
+            top,
+            bottom,
+            pixel_size,
+            show_grid_16: state.show_grid_16,
+            snap_grid_16: state.snap_grid_16,
+            hover_coords: if state.hover_source == Some(source) {
+                state.hover_coords
+            } else {
+                None
+            },
+            grid_alpha: state.global_config.grid_alpha,
+        })
+        .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
+        .height((num_rows as f32 * 8.0 + 2.0) * pixel_size),
+    ];
+    if room_map {
+        return grid.into();
+    }
     Scrollable::with_direction(
-        column![stack![
-            canvas(AreaGrid {
-                position,
-                area_id: state.area_id(position).clone(),
-                area: state.area(position),
-                selected_layer_idx: state.selected_layer_idx(position),
-                visible_layers: if state.preview_conditions {
-                    &state.preview_visible_layers
-                } else {
-                    &state.visible_layers
-                },
-                palettes: &state.palettes,
-                palettes_id_idx_map: &state.palettes_id_idx_map,
-                pixel_size,
-                end_coords: state.end_coords,
-                // thickness: 1.0,
-                palette_only_brush: state.shift_brush,
-                tile_block: &state.selected_tile_block,
-                identify_tile: state.identify_tile,
-                palette_idx: state.palette_idx,
-                tile_idx: state.tile_idx,
-                identify_color: state.identify_color,
-                color_idx: state.color_idx,
-                tool: state.tool,
-                snap_grid_16: state.snap_grid_16,
-            })
-            .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
-            .height((num_rows as f32 * 8.0 + 2.0) * pixel_size),
-            canvas(AreaSelect {
-                selecting_active: state.selection_source == SelectionSource::Area(position)
-                    && state.start_coords.is_some()
-                    && state.end_coords.is_some(),
-                left,
-                right,
-                top,
-                bottom,
-                pixel_size,
-                show_grid_16: state.show_grid_16,
-                snap_grid_16: state.snap_grid_16,
-                hover_coords: state.hover_coords,
-                grid_alpha: state.global_config.grid_alpha,
-            })
-            .width((num_cols as f32 * 8.0 + 2.0) * pixel_size)
-            .height((num_rows as f32 * 8.0 + 2.0) * pixel_size),
-        ]]
-        .padding(Padding::new(0.0).right(16.0).bottom(16.0)),
+        column![grid].padding(Padding::new(0.0).right(16.0).bottom(16.0)),
         Direction::Both {
             vertical: Scrollbar::default(),
             horizontal: Scrollbar::default(),
@@ -951,6 +1017,20 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
         );
     }
 
+    let map = if state.main_area().world != World::Special
+        && get_cloud_world(&state.main_area().name).is_none()
+    {
+        Some(
+            column![
+                text("Room map"),
+                area_grid_view(state, AreaPosition::Main, true)
+            ]
+            .spacing(5),
+        )
+    } else {
+        None
+    };
+
     container(
         column![
             row![
@@ -977,6 +1057,9 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
             ]
             .spacing(5),
             Scrollable::new(list.spacing(5)).height(Length::Fill),
+        ]
+        .push_maybe(map)
+        .push(
             text_input("Layer name", &layers[selected].name).on_input(move |name| {
                 Message::RenameLayer {
                     position: AreaPosition::Main,
@@ -985,18 +1068,18 @@ pub fn layer_drawer_view(state: &EditorState) -> Element<'_, Message> {
                     name,
                 }
             }),
-            pick_list(
-                backgrounds,
-                Some(layers[selected].background),
-                move |background| Message::SetLayerBackground {
-                    position: AreaPosition::Main,
-                    area_id: state.main_area_id.clone(),
-                    layer_idx: selected,
-                    background,
-                }
-            ),
-            condition_controls,
-        ]
+        )
+        .push(pick_list(
+            backgrounds,
+            Some(layers[selected].background),
+            move |background| Message::SetLayerBackground {
+                position: AreaPosition::Main,
+                area_id: state.main_area_id.clone(),
+                layer_idx: selected,
+                background,
+            },
+        ))
+        .push(condition_controls)
         .spacing(10),
     )
     .padding(10)

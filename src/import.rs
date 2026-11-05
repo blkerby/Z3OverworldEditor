@@ -1299,6 +1299,7 @@ impl<'a> Importer<'a> {
                                     }
 
                                     area.set_layer_placement(
+                                        false,
                                         0,
                                         x as u16,
                                         y as u16,

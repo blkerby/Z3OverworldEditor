@@ -288,7 +288,7 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
     .padding(10)
     .spacing(10);
 
-    let main_panel = container(area_grid_view(state, AreaPosition::Main)).padding(10);
+    let main_panel = container(area_grid_view(state, AreaPosition::Main, false)).padding(10);
 
     let side_panel: Element<Message> = match state.side_panel_view {
         SidePanelView::Tileset => column![
@@ -302,7 +302,7 @@ pub fn view(state: &EditorState) -> Element<'_, Message> {
         .into(),
         SidePanelView::Area => column![
             side_area_controls(state),
-            area_grid_view(state, AreaPosition::Side),
+            area_grid_view(state, AreaPosition::Side, false),
         ]
         .padding(10)
         .spacing(10)

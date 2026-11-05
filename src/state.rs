@@ -485,8 +485,22 @@ impl Area {
         }
     }
 
-    pub fn get_layer_coords(&self, x: TileCoord, y: TileCoord) -> Result<(usize, usize)> {
-        if x >= self.size.0 as TileCoord * 32 || y >= self.size.1 as TileCoord * 32 {
+    pub fn get_grid_size(&self, room_map: bool) -> (TileCoord, TileCoord) {
+        let scale = if room_map { 2 } else { 32 };
+        (
+            self.size.0 as TileCoord * scale,
+            self.size.1 as TileCoord * scale,
+        )
+    }
+
+    pub fn get_layer_coords(
+        &self,
+        room_map: bool,
+        x: TileCoord,
+        y: TileCoord,
+    ) -> Result<(usize, usize)> {
+        let (width, height) = self.get_grid_size(room_map);
+        if x >= width || y >= height {
             bail!("out of range");
         }
         Ok((x as usize, y as usize))
@@ -494,25 +508,47 @@ impl Area {
 
     pub fn get_layer_placement(
         &self,
+        room_map: bool,
         layer_idx: usize,
         x: TileCoord,
         y: TileCoord,
     ) -> Result<Option<TilePlacement>> {
-        let (x, y) = self.get_layer_coords(x, y)?;
-        Ok(self.layers.get(layer_idx).context("layer not found")?.tiles[y][x])
+        let (x, y) = self.get_layer_coords(room_map, x, y)?;
+        let layer = self.layers.get(layer_idx).context("layer not found")?;
+        if room_map {
+            Ok(layer.map.as_ref().and_then(|map| map[y][x]))
+        } else {
+            Ok(layer.tiles[y][x])
+        }
     }
 
     pub fn set_layer_placement(
         &mut self,
+        room_map: bool,
         layer_idx: usize,
         x: TileCoord,
         y: TileCoord,
         placement: Option<TilePlacement>,
     ) -> Result<()> {
-        let (x, y) = self.get_layer_coords(x, y)?;
+        let (x, y) = self.get_layer_coords(room_map, x, y)?;
+        let (width, height) = self.get_grid_size(room_map);
         let layer = self.layers.get_mut(layer_idx).context("layer not found")?;
-        layer.tiles[y][x] = placement;
-        layer.modified = true;
+        if room_map {
+            if placement.is_some() {
+                let map = layer
+                    .map
+                    .get_or_insert_with(|| vec![vec![None; width as usize]; height as usize]);
+                map[y][x] = placement;
+            } else if let Some(map) = &mut layer.map {
+                map[y][x] = None;
+                if map.iter().flatten().all(Option::is_none) {
+                    layer.map = None;
+                }
+            }
+        } else {
+            layer.tiles[y][x] = placement;
+            layer.modified = true;
+        }
         self.modified = true;
         Ok(())
     }
@@ -674,6 +710,7 @@ pub struct EditorState {
     pub start_coords: Option<(TileCoord, TileCoord)>,
     pub end_coords: Option<(TileCoord, TileCoord)>,
     pub hover_coords: Option<(TileCoord, TileCoord)>,
+    pub hover_source: Option<SelectionSource>,
     pub selected_tile_block: TileBlock,
     pub selected_gfx: Vec<Vec<Option<Tile>>>,
     pub show_grid_16: bool,
@@ -1018,6 +1055,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         start_coords: None,
         end_coords: None,
         hover_coords: None,
+        hover_source: None,
         selected_tile_block: TileBlock::default(),
         selected_gfx: vec![],
         show_grid_16: false,

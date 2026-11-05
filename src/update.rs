@@ -143,6 +143,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
         },
         Message::AreaBrush {
             position,
+            room_map,
             area_id,
             layer_idx,
             coords,
@@ -151,6 +152,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
         } => match last_message {
             Message::AreaBrush {
                 position: last_position,
+                room_map: last_room_map,
                 area_id: last_area_id,
                 layer_idx: last_layer_idx,
                 coords: last_coords,
@@ -158,6 +160,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
                 palette_only: last_palette_only,
             } => {
                 position == last_position
+                    && room_map == last_room_map
                     && area_id == last_area_id
                     && layer_idx == last_layer_idx
                     && coords == last_coords
@@ -168,6 +171,7 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
         },
         Message::AreaErase {
             position,
+            room_map,
             area_id,
             layer_idx,
             coords,
@@ -176,11 +180,13 @@ fn should_debounce(message: &Message, last_message: &Message) -> bool {
             last_message,
             Message::AreaErase {
                 position: last_position,
+                room_map: last_room_map,
                 area_id: last_area_id,
                 layer_idx: last_layer_idx,
                 coords: last_coords,
                 size: last_size,
             } if position == last_position
+                && room_map == last_room_map
                 && area_id == last_area_id
                 && layer_idx == last_layer_idx
                 && coords == last_coords
@@ -1405,11 +1411,12 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     theme: area_id.theme.clone(),
                 },
             )?;
-            if let SelectionSource::Area(p) = state.selection_source {
-                if p == position {
-                    state.start_coords = None;
-                    state.end_coords = None;
-                }
+            if state.selection_source == SelectionSource::Area(position)
+                || (position == AreaPosition::Main
+                    && state.selection_source == SelectionSource::RoomMap)
+            {
+                state.start_coords = None;
+                state.end_coords = None;
             }
         }
         Message::AddAreaDialogue => {
@@ -2041,11 +2048,15 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             }
             state.dialogue = None;
         }
-        Message::HoverArea(p) => {
+        Message::HoverArea(p, source) => {
             state.hover_coords = Some((p.x, p.y));
+            state.hover_source = Some(*source);
         }
-        Message::HoverAreaEnd => {
-            state.hover_coords = None;
+        Message::HoverAreaEnd(source) => {
+            if state.hover_source == Some(*source) {
+                state.hover_coords = None;
+                state.hover_source = None;
+            }
         }
         &Message::StartTileSelection(p, source) => {
             state.selection_source = source;
@@ -2078,6 +2089,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                 SelectionSource::Area(position) => {
                     state.focus = Focus::Area(position);
                 }
+                SelectionSource::RoomMap => {
+                    state.focus = Focus::Area(AreaPosition::Main);
+                }
                 SelectionSource::Tileset => {
                     state.focus = Focus::TilesetTile;
                 }
@@ -2093,7 +2107,13 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     let placement = match state.selection_source {
                         SelectionSource::Area(position) => state
                             .area(position)
-                            .get_layer_placement(state.selected_layer_idx(position), x, y)?,
+                            .get_layer_placement(false, state.selected_layer_idx(position), x, y)?,
+                        SelectionSource::RoomMap => state.main_area().get_layer_placement(
+                            true,
+                            state.main_layer_idx,
+                            x,
+                            y,
+                        )?,
                         SelectionSource::Tileset => Some(TilePlacement {
                             palette: state.palettes[state.palette_idx].id,
                             tile: y * 16 + x,
@@ -2163,6 +2183,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
         }
         &Message::AreaBrush {
             position,
+            room_map,
             ref area_id,
             layer_idx,
             coords,
@@ -2179,10 +2200,11 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     if palette_only {
                         if let (Some(source), Ok(Some(mut destination))) = (
                             source,
-                            area.get_layer_placement(layer_idx, p.x + x, p.y + y),
+                            area.get_layer_placement(room_map, layer_idx, p.x + x, p.y + y),
                         ) {
                             destination.palette = source.palette;
                             let _ = area.set_layer_placement(
+                                room_map,
                                 layer_idx,
                                 p.x + x,
                                 p.y + y,
@@ -2190,13 +2212,15 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             );
                         }
                     } else {
-                        let _ = area.set_layer_placement(layer_idx, p.x + x, p.y + y, source);
+                        let _ =
+                            area.set_layer_placement(room_map, layer_idx, p.x + x, p.y + y, source);
                     }
                 }
             }
         }
         &Message::AreaErase {
             position,
+            room_map,
             ref area_id,
             layer_idx,
             coords,
@@ -2206,7 +2230,13 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             let area = state.area_mut(position);
             for y in 0..size {
                 for x in 0..size {
-                    let _ = area.set_layer_placement(layer_idx, coords.x + x, coords.y + y, None);
+                    let _ = area.set_layer_placement(
+                        room_map,
+                        layer_idx,
+                        coords.x + x,
+                        coords.y + y,
+                        None,
+                    );
                 }
             }
         }

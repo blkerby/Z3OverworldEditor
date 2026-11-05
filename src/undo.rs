@@ -493,13 +493,14 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         }),
         Message::DeleteThemeDialogue => UndoAction::None,
         Message::DeleteTheme(_) => UndoAction::Irreversible,
-        Message::HoverArea(_) => UndoAction::None,
-        Message::HoverAreaEnd => UndoAction::None,
+        Message::HoverArea(_, _) => UndoAction::None,
+        Message::HoverAreaEnd(_) => UndoAction::None,
         Message::StartTileSelection(_, _) => UndoAction::None,
         Message::ProgressTileSelection(_) => UndoAction::None,
         Message::EndTileSelection(_) => UndoAction::None,
         Message::AreaBrush {
             position,
+            room_map,
             area_id,
             layer_idx,
             coords,
@@ -511,6 +512,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 let mut row = vec![];
                 for x in 0..selection.size.0 {
                     match state.areas[area_id].get_layer_placement(
+                        *room_map,
                         *layer_idx,
                         coords.x + x,
                         coords.y + y,
@@ -524,15 +526,16 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 }
                 placements.push(row);
             }
+            let Some(first_row) = placements.first() else {
+                return Ok(UndoAction::None);
+            };
             let new_selection = TileBlock {
-                size: (
-                    placements[0].len() as TileCoord,
-                    placements.len() as TileCoord,
-                ),
+                size: (first_row.len() as TileCoord, placements.len() as TileCoord),
                 placements,
             };
             UndoAction::Ok(Message::AreaBrush {
                 position: *position,
+                room_map: *room_map,
                 area_id: area_id.clone(),
                 layer_idx: *layer_idx,
                 coords: *coords,
@@ -542,6 +545,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         }
         Message::AreaErase {
             position,
+            room_map,
             area_id,
             layer_idx,
             coords,
@@ -552,6 +556,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
                 let mut row = vec![];
                 for x in 0..*size {
                     row.push(state.areas[area_id].get_layer_placement(
+                        *room_map,
                         *layer_idx,
                         coords.x + x,
                         coords.y + y,
@@ -561,6 +566,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
             }
             UndoAction::Ok(Message::AreaBrush {
                 position: *position,
+                room_map: *room_map,
                 area_id: area_id.clone(),
                 layer_idx: *layer_idx,
                 coords: *coords,
