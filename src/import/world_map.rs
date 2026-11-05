@@ -141,7 +141,7 @@ pub(super) fn import_world_maps(
     constants: &Constants,
     state: &mut EditorState,
     theme: &str,
-) -> Result<()> {
+) -> Result<[Vec<Vec<Option<TilePlacement>>>; 2]> {
     let project_dir = state
         .global_config
         .project_dir
@@ -155,9 +155,13 @@ pub(super) fn import_world_maps(
     let dark_map = rom.read_n(map_addr + 0x1000, 0x400)?;
     let mut imported: Vec<Palette> = Vec::new();
     let mut areas = Vec::new();
+    let mut world_maps = [Vec::new(), Vec::new()];
     let mut next_id = palettes.iter().map(|p| p.id).max().unwrap_or(0) as u32 + 1;
 
-    for (world, name, palette_offset) in [(World::Light, "Light", 0), (World::Dark, "Dark", 0x100)]
+    for (world_idx, (world, name, palette_offset)) in
+        [(World::Light, "Light", 0), (World::Dark, "Dark", 0x100)]
+            .into_iter()
+            .enumerate()
     {
         let mut used = [false; 256];
         let mut map_tiles = [[0u8; 64]; 64];
@@ -349,6 +353,7 @@ pub(super) fn import_world_maps(
                 }],
             });
         }
+        world_maps[world_idx] = tiles;
     }
     // Commit only after both worlds convert successfully.
     for palette in imported {
@@ -370,5 +375,5 @@ pub(super) fn import_world_maps(
         state.areas.get_mut(&id).unwrap().modified = false;
     }
     state.area_names.sort();
-    Ok(())
+    Ok(world_maps)
 }

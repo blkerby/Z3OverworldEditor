@@ -587,7 +587,8 @@ impl<'a> Importer<'a> {
     }
 
     fn import_all(&mut self) -> Result<()> {
-        world_map::import_world_maps(&self.rom, &self.constants, self.state, &self.theme)?;
+        let world_maps =
+            world_map::import_world_maps(&self.rom, &self.constants, self.state, &self.theme)?;
         let starting_palette_id = self.state.palettes.iter().map(|x| x.id).max().unwrap() + 1;
         self.load_area_names()?;
         self.load_tile_types()?;
@@ -599,7 +600,7 @@ impl<'a> Importer<'a> {
         self.load_map_parents()?;
         self.load_map_palettes()?;
         self.load_map_gfx()?;
-        self.load_areas()?;
+        self.load_areas(&world_maps)?;
         self.load_dynamic_tiles()?;
         self.ensure_palette_full_rows()?;
         self.assign_bg_colors()?;
@@ -1001,7 +1002,7 @@ impl<'a> Importer<'a> {
         Ok(())
     }
 
-    fn load_areas(&mut self) -> Result<()> {
+    fn load_areas(&mut self, world_maps: &[Vec<Vec<Option<TilePlacement>>>; 2]) -> Result<()> {
         let tile32_offsets = [(0, 0), (2, 0), (0, 2), (2, 2)];
         let tile16_offsets = [(0, 0), (1, 0), (0, 1), (1, 1)];
 
@@ -1041,7 +1042,7 @@ impl<'a> Importer<'a> {
             if self.map_parents[parent] as usize != parent {
                 continue;
             }
-            let _block_y = (parent / 8) % 8;
+            let block_y = (parent / 8) % 8;
             let block_x = parent % 8;
             let size = if block_x <= 6 && self.map_parents[parent + 1] as usize == parent {
                 (2, 2)
@@ -1146,6 +1147,17 @@ impl<'a> Importer<'a> {
                     ],
                 }],
             };
+            if parent < 0x80 {
+                // Vanilla terrain starts 16 tiles inside the full world map's border.
+                let left = 16 + block_x * 4;
+                let top = 16 + block_y * 4;
+                let (width, height) = area.get_grid_size(true);
+                let mut map = Vec::new();
+                for row in &world_maps[parent / 64][top..top + height as usize] {
+                    map.push(row[left..left + width as usize].to_vec());
+                }
+                area.layers[0].map = Some(map);
+            }
             self.state.area_names.push(area.name.clone());
             for my in 0..size.1 as usize {
                 for mx in 0..size.0 as usize {
