@@ -797,7 +797,7 @@ pub fn main_area_controls(state: &EditorState) -> Element<'_, Message> {
             .on_press(Message::EditAreaDialogue),
         text("Theme"),
         pick_list(
-            state.theme_names.clone(),
+            state.get_area_themes(&state.main_area().name),
             Some(state.main_area().theme.clone()),
             |x| Message::SelectTheme(AreaPosition::Main, x)
         )
@@ -846,7 +846,7 @@ pub fn side_area_controls(state: &EditorState) -> Element<'_, Message> {
         .on_open(Message::Focus(Focus::PickArea(AreaPosition::Side)))
         .width(125),
         pick_list(
-            state.theme_names.clone(),
+            state.get_area_themes(&state.side_area().name),
             Some(state.side_area().theme.clone()),
             |x| Message::SelectTheme(AreaPosition::Side, x)
         )

@@ -306,20 +306,6 @@ pub(super) fn import_world_maps(
                 ..TilePlacement::default()
             };
         }
-        let mut terrain_count = added_tiles;
-        for palette in palettes.iter() {
-            if palette.map_world == Some(world) {
-                terrain_count += palette
-                    .tiles
-                    .iter()
-                    .filter(|tile| tile.map_use == Some(MapUse::Terrain))
-                    .count();
-            }
-        }
-        ensure!(
-            terrain_count <= 1024,
-            "Import would exceed 1024 {name} World terrain tiles; existing artwork was preserved"
-        );
         info!("{name} World map: {} source tiles in {} palettes; added {new_count} palettes and {added_tiles} tiles", source_tiles.len(), packed.len());
         imported.extend(world_palettes);
         let mut tiles = vec![vec![None; 64]; 64];

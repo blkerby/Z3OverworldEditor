@@ -177,6 +177,14 @@ pub enum World {
     Special,
 }
 
+pub fn get_cloud_world(area_name: &str) -> Option<World> {
+    match area_name {
+        "Light World Clouds" => Some(World::Light),
+        "Dark World Clouds" => Some(World::Dark),
+        _ => None,
+    }
+}
+
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum MapWorld {
@@ -189,23 +197,6 @@ pub enum MapWorld {
 pub enum MapUse {
     Terrain,
     Clouds,
-}
-
-#[derive(Clone, Debug)]
-pub struct OverworldMap {
-    pub modified: bool,
-    pub bg_color: ColorRGB,
-    pub clouds: Vec<Vec<Option<TilePlacement>>>,
-}
-
-impl Default for OverworldMap {
-    fn default() -> Self {
-        Self {
-            modified: false,
-            bg_color: [0; 3],
-            clouds: vec![vec![None; 32]; 28],
-        }
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -634,7 +625,6 @@ pub struct EditorState {
     // to limit memory usage and start-up time. Everything else is fully loaded.
     pub palettes: Vec<Palette>,
     pub dynamic_tiles: DynamicTiles,
-    pub overworld_maps: BTreeMap<MapWorld, OverworldMap>,
     pub edge_variants: Vec<String>,
     pub edge_variant_aliases: BTreeMap<String, Vec<String>>,
     pub slot_aliases: BTreeMap<String, String>,
@@ -832,12 +822,24 @@ impl EditorState {
         Ok(())
     }
 
-    pub fn switch_area(&mut self, position: AreaPosition, area_id: &AreaId) -> Result<()> {
-        let changed = self.area_id(position) != area_id;
-        if !self.areas.contains_key(area_id) {
-            self.load_area(area_id)?;
+    pub fn get_area_themes(&self, area_name: &str) -> Vec<ThemeName> {
+        if get_cloud_world(area_name).is_some() {
+            vec!["Base".to_owned()]
+        } else {
+            self.theme_names.clone()
         }
-        *self.area_id_mut(position) = area_id.clone();
+    }
+
+    pub fn switch_area(&mut self, position: AreaPosition, area_id: &AreaId) -> Result<()> {
+        let mut area_id = area_id.clone();
+        if get_cloud_world(&area_id.area).is_some() {
+            area_id.theme = "Base".to_owned();
+        }
+        let changed = self.area_id(position) != &area_id;
+        if !self.areas.contains_key(&area_id) {
+            self.load_area(&area_id)?;
+        }
+        *self.area_id_mut(position) = area_id;
         if changed {
             self.reset_layer_state(position);
         }
@@ -978,7 +980,6 @@ pub fn get_initial_state() -> Result<EditorState> {
         rom_path: None,
         palettes: vec![],
         dynamic_tiles: DynamicTiles::default(),
-        overworld_maps: BTreeMap::new(),
         edge_variants: vec![],
         edge_variant_aliases: BTreeMap::new(),
         slot_aliases: BTreeMap::new(),

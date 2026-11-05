@@ -13,10 +13,11 @@ use crate::{
         load_area_list, remap_tiles, rename_area, rename_area_theme, save_area, scan_used_tiles,
     },
     state::{
-        is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering, ColorIdx,
-        ColorRGB, Dialogue, DynamicTileGrid, DynamicTileGroup, DynamicTileTarget, DynamicTileType,
-        DynamicTileVariant, EditorState, Flip, Focus, Layer, PaletteId, PixelTarget, SidePanelView,
-        Tile, TileBlock, TileIdx, TilePlacement, Tool, MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
+        get_cloud_world, is_valid_layer_name, Area, AreaId, AreaPosition, Background,
+        BackgroundLayering, ColorIdx, ColorRGB, Dialogue, DynamicTileGrid, DynamicTileGroup,
+        DynamicTileTarget, DynamicTileType, DynamicTileVariant, EditorState, Flip, Focus, Layer,
+        PaletteId, PixelTarget, SidePanelView, Tile, TileBlock, TileIdx, TilePlacement, Tool,
+        MAX_PIXEL_SIZE, MIN_PIXEL_SIZE,
     },
     undo::{get_undo_action, UndoAction},
     view::{open_project, open_rom},
@@ -379,13 +380,12 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     }
                     Focus::PickTheme(position) => {
                         let area_id = state.area_id(position);
-                        if let Some(theme_idx) =
-                            state.theme_names.iter().position(|x| x == &area_id.theme)
-                        {
-                            if theme_idx + 1 < state.theme_names.len() {
+                        let themes = state.get_area_themes(&area_id.area);
+                        if let Some(theme_idx) = themes.iter().position(|x| x == &area_id.theme) {
+                            if theme_idx + 1 < themes.len() {
                                 return Ok(Some(Task::done(Message::SelectTheme(
                                     position,
-                                    state.theme_names[theme_idx + 1].clone(),
+                                    themes[theme_idx + 1].clone(),
                                 ))));
                             }
                         } else {
@@ -461,13 +461,12 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     }
                     Focus::PickTheme(position) => {
                         let area_id = state.area_id(position);
-                        if let Some(theme_idx) =
-                            state.theme_names.iter().position(|x| x == &area_id.theme)
-                        {
+                        let themes = state.get_area_themes(&area_id.area);
+                        if let Some(theme_idx) = themes.iter().position(|x| x == &area_id.theme) {
                             if theme_idx > 0 {
                                 return Ok(Some(Task::done(Message::SelectTheme(
                                     position,
-                                    state.theme_names[theme_idx - 1].clone(),
+                                    themes[theme_idx - 1].clone(),
                                 ))));
                             }
                         } else {
@@ -1444,16 +1443,23 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                     return Ok(None);
                 }
             }
-            for theme in state.theme_names.clone() {
+            let cloud_world = get_cloud_world(name);
+            let size = if cloud_world.is_some() { (2, 2) } else { *size };
+            let initial_tile = if cloud_world.is_some() {
+                None
+            } else {
+                Some(TilePlacement::default())
+            };
+            for theme in state.get_area_themes(name) {
                 state.set_area(
                     AreaPosition::Main,
                     Area {
                         modified: true,
                         name: name.clone(),
                         theme,
-                        size: *size,
+                        size,
                         vanilla_map_id: None,
-                        world: state.main_area().world,
+                        world: cloud_world.unwrap_or(state.main_area().world),
                         other_world_area: None,
                         bg_color: state.areas[&state.main_area_id].bg_color,
                         bg_layering: BackgroundLayering::None,
@@ -1468,7 +1474,7 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             background: Background::Bg2,
                             map: None,
                             tiles: vec![
-                                vec![Some(TilePlacement::default()); size.0 as usize * 32];
+                                vec![initial_tile; size.0 as usize * 32];
                                 size.1 as usize * 32
                             ],
                         }],

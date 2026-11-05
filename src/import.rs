@@ -11,10 +11,10 @@ use std::{
 use crate::{
     persist::{load_area, load_project, save_area_json, save_area_png, save_json, save_project},
     state::{
-        AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering, ColorRGB,
-        ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType, DynamicTileVariant,
-        DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile, TileIdx, TilePixels,
-        TilePlacement, World,
+        get_cloud_world, AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering,
+        ColorRGB, ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType,
+        DynamicTileVariant, DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile,
+        TileIdx, TilePixels, TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -606,6 +606,9 @@ impl<'a> Importer<'a> {
         save_project(self.state)?;
         load_project(self.state)?;
         for area_name in &self.state.area_names.clone() {
+            if get_cloud_world(area_name).is_some() {
+                continue;
+            }
             let area_id = AreaId {
                 theme: self.theme.clone(),
                 area: area_name.clone(),
@@ -620,6 +623,9 @@ impl<'a> Importer<'a> {
 
     fn load_area_names(&mut self) -> Result<()> {
         for area_name in &self.state.area_names {
+            if get_cloud_world(area_name).is_some() {
+                continue;
+            }
             let area_id = AreaId {
                 area: area_name.clone(),
                 theme: self.theme.clone(),

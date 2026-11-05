@@ -11,7 +11,7 @@ use heuristic_graph_coloring::VecVecGraph;
 use log::info;
 use z3_overworld_editor::{
     persist::{self, load_area, load_project},
-    state::{self, AreaId, EditorState, PaletteId, ThemeName},
+    state::{self, get_cloud_world, AreaId, EditorState, PaletteId, ThemeName},
 };
 
 #[derive(Parser, Debug)]
@@ -115,6 +115,9 @@ fn get_area_palettes(
 ) -> Result<HashMap<MapIdx, Vec<PaletteId>>> {
     let mut out: HashMap<MapIdx, Vec<PaletteId>> = HashMap::new();
     for area_name in &state.area_names {
+        if get_cloud_world(area_name).is_some() {
+            continue;
+        }
         let area_id = AreaId {
             area: area_name.clone(),
             theme: theme.clone(),

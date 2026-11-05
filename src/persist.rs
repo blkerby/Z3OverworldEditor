@@ -20,9 +20,9 @@ use crate::{
     helpers::scale_color,
     state::{
         ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty,
-        is_valid_layer_name, Area, AreaId, AreaPosition, Background, BackgroundLayering,
-        DynamicTiles, EditorState, Flip, Layer, MapWorld, OverworldMap, Palette, PaletteId,
-        TileIdx, TilePlacement, World,
+        get_cloud_world, is_valid_layer_name, Area, AreaId, AreaPosition, Background,
+        BackgroundLayering, DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, TileIdx,
+        TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -191,58 +191,6 @@ fn encode_map_tiles(tiles: &[Vec<Option<TilePlacement>>]) -> StoredMap {
         stored.flips.push(flips);
     }
     stored
-}
-
-#[derive(Serialize, Deserialize)]
-struct StoredOverworldMap {
-    bg_color: [u8; 3],
-    clouds: StoredMap,
-}
-
-fn load_overworld_maps(state: &mut EditorState) -> Result<()> {
-    let dir = get_project_dir(state)?.join("OverworldMap");
-    state.overworld_maps.clear();
-    for (world, name) in [(MapWorld::Light, "light"), (MapWorld::Dark, "dark")] {
-        let path = dir.join(format!("{name}.json"));
-        let map = if path.exists() {
-            let stored: StoredOverworldMap = load_json(&path)?;
-            OverworldMap {
-                modified: false,
-                bg_color: stored.bg_color,
-                clouds: decode_map_tiles(stored.clouds, 32, 28)
-                    .with_context(|| format!("invalid clouds in {}", path.display()))?,
-            }
-        } else {
-            OverworldMap::default()
-        };
-        state.overworld_maps.insert(world, map);
-    }
-    Ok(())
-}
-
-fn save_overworld_maps(state: &mut EditorState) -> Result<()> {
-    let dir = get_project_dir(state)?.join("OverworldMap");
-    for (world, name) in [(MapWorld::Light, "light"), (MapWorld::Dark, "dark")] {
-        let Some(map) = state.overworld_maps.get(&world) else {
-            continue;
-        };
-        if !map.modified {
-            continue;
-        }
-        let stored = StoredOverworldMap {
-            bg_color: map.bg_color,
-            clouds: encode_map_tiles(&map.clouds),
-        };
-        let watch_was_enabled = state.watch_enabled;
-        state.disable_watch_file_changes()?;
-        let result = save_json(&dir.join(format!("{name}.json")), &stored);
-        if watch_was_enabled {
-            state.enable_watch_file_changes()?;
-        }
-        result?;
-        state.overworld_maps.get_mut(&world).unwrap().modified = false;
-    }
-    Ok(())
 }
 
 const MAX_PNG_WORKERS: usize = 8;
@@ -608,12 +556,8 @@ pub fn load_area(state: &EditorState, area_id: &AreaId) -> Result<Area> {
             tiles,
             map: match stored_layer.map {
                 Some(map) => Some(
-                    decode_map_tiles(
-                        map,
-                        stored.size.0 as usize * 3 / 2,
-                        stored.size.1 as usize * 3 / 2,
-                    )
-                    .context("invalid room map")?,
+                    decode_map_tiles(map, stored.size.0 as usize * 2, stored.size.1 as usize * 2)
+                        .context("invalid room map")?,
                 ),
                 None => None,
             },
@@ -743,8 +687,8 @@ pub fn rebuild_pngs(state: &mut EditorState) -> Result<()> {
     let result = (|| {
         clear_pngs(state)?;
         let mut exports = Vec::new();
-        for theme in &state.theme_names.clone() {
-            for area_name in &state.area_names.clone() {
+        for area_name in &state.area_names.clone() {
+            for theme in &state.get_area_themes(area_name) {
                 let area_id = AreaId {
                     theme: theme.clone(),
                     area: area_name.clone(),
@@ -905,6 +849,9 @@ pub fn copy_area_theme(
     old_theme: &str,
     new_theme: &str,
 ) -> Result<()> {
+    if get_cloud_world(name).is_some() {
+        return Ok(());
+    }
     let area_dir = get_area_dir(state)?.join(name);
     let old_area_path = area_dir.join(format!("{}.json", old_theme));
     let new_area_path = area_dir.join(format!("{}.json", new_theme));
@@ -973,6 +920,9 @@ pub fn rename_area_theme(
     old_theme: &str,
     new_theme: &str,
 ) -> Result<()> {
+    if get_cloud_world(area_name).is_some() {
+        return Ok(());
+    }
     let area_dir = get_area_dir(state)?.join(area_name);
     let old_area_path = area_dir.join(format!("{}.json", old_theme));
     let new_area_path = area_dir.join(format!("{}.json", new_theme));
@@ -1007,6 +957,9 @@ pub fn delete_area(state: &mut EditorState, name: &str) -> Result<()> {
 }
 
 pub fn delete_area_theme(state: &mut EditorState, area_name: &str, theme: &str) -> Result<()> {
+    if get_cloud_world(area_name).is_some() {
+        return Ok(());
+    }
     let area_dir = get_area_dir(state)?.join(area_name);
     let area_path = area_dir.join(format!("{}.json", theme));
     info!("Deleting {}", area_path.display());
@@ -1022,10 +975,9 @@ pub fn delete_area_theme(state: &mut EditorState, area_name: &str, theme: &str) 
 
 pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, TileIdx)>> {
     let area_names = state.area_names.clone();
-    let theme_names = state.theme_names.clone();
     let mut out = HashSet::new();
     for area_name in &area_names {
-        for theme_name in &theme_names {
+        for theme_name in &state.get_area_themes(area_name) {
             let area_id = AreaId {
                 area: area_name.clone(),
                 theme: theme_name.clone(),
@@ -1045,13 +997,6 @@ pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, Ti
                         }
                     }
                 }
-            }
-        }
-    }
-    for map in state.overworld_maps.values() {
-        for row in &map.clouds {
-            for placement in row.iter().flatten() {
-                out.insert((placement.palette, placement.tile));
             }
         }
     }
@@ -1097,9 +1042,8 @@ pub fn remap_tiles(
     map: &HashMap<(PaletteId, TileIdx), (PaletteId, TileIdx, Flip)>,
 ) -> Result<()> {
     let area_names = state.area_names.clone();
-    let theme_names = state.theme_names.clone();
     for area_name in &area_names {
-        for theme_name in &theme_names {
+        for theme_name in &state.get_area_themes(area_name) {
             let area_id = AreaId {
                 area: area_name.clone(),
                 theme: theme_name.clone(),
@@ -1127,10 +1071,6 @@ pub fn remap_tiles(
             save_area(state, &area_id)?;
             state.cleanup_areas()?;
         }
-    }
-
-    for overworld_map in state.overworld_maps.values_mut() {
-        overworld_map.modified |= remap_grid_tiles(&mut overworld_map.clouds, map);
     }
 
     let mut dynamic_tiles_modified = false;
@@ -1175,7 +1115,6 @@ pub fn save_project(state: &mut EditorState) -> Result<()> {
     save_global_config(state)?;
     save_palettes(state)?;
     save_dynamic_tiles(state)?;
-    save_overworld_maps(state)?;
     save_area(state, &state.main_area_id.clone())?;
     save_area(state, &state.side_area_id.clone())?;
     Ok(())
@@ -1244,11 +1183,10 @@ pub fn load_project(state: &mut EditorState) -> Result<()> {
     state.slot_aliases = conditions.slot_aliases;
     load_palettes(state)?;
     load_dynamic_tiles(state)?;
-    load_overworld_maps(state)?;
     load_area_list(state)?;
     let area_id = AreaId {
         area: state.area_names[0].clone(),
-        theme: state.theme_names[0].clone(),
+        theme: state.get_area_themes(&state.area_names[0])[0].clone(),
     };
     state.load_area(&area_id)?;
     state.switch_area(AreaPosition::Main, &area_id)?;
