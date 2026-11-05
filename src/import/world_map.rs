@@ -6,8 +6,8 @@ use super::{strip_tile, Constants, PcAddr, Rom, SnesAddr};
 use crate::{
     persist::{save_area_json, save_area_png},
     state::{
-        Area, AreaPosition, Background, BackgroundLayering, EditorState, Layer, MapUse, MapWorld,
-        Palette, Tile, TilePlacement, World,
+        Area, AreaPosition, Background, BackgroundLayering, EditorState, Layer, Palette, Tile,
+        TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -153,26 +153,24 @@ pub(super) fn import_world_maps(
     let map_addr: PcAddr = constants.world_map_addr.into();
     let light_map = rom.read_n(map_addr, 0x1000)?;
     let dark_map = rom.read_n(map_addr + 0x1000, 0x400)?;
-    let mut imported = Vec::new();
+    let mut imported: Vec<Palette> = Vec::new();
     let mut areas = Vec::new();
     let mut next_id = palettes.iter().map(|p| p.id).max().unwrap_or(0) as u32 + 1;
 
-    for (world, name, palette_offset) in [
-        (MapWorld::Light, "Light", 0),
-        (MapWorld::Dark, "Dark", 0x100),
-    ] {
+    for (world, name, palette_offset) in [(World::Light, "Light", 0), (World::Dark, "Dark", 0x100)]
+    {
         let mut used = [false; 256];
         let mut map_tiles = [[0u8; 64]; 64];
         used[0xEF] = true; // Vanilla fills the rest of the 128×128 map with this tile.
         for y in 0..64 {
             for x in 0..64 {
                 // Dark World replaces only the central 32×32 of the Light World map.
-                let tile =
-                    if world == MapWorld::Dark && (16..48).contains(&x) && (16..48).contains(&y) {
-                        dark_map[(y - 16) * 32 + x - 16]
-                    } else {
-                        light_map[(y / 32 * 2 + x / 32) * 1024 + y % 32 * 32 + x % 32]
-                    };
+                let tile = if world == World::Dark && (16..48).contains(&x) && (16..48).contains(&y)
+                {
+                    dark_map[(y - 16) * 32 + x - 16]
+                } else {
+                    light_map[(y / 32 * 2 + x / 32) * 1024 + y % 32 * 32 + x % 32]
+                };
                 used[tile as usize] = true;
                 map_tiles[y][x] = tile;
             }
@@ -237,9 +235,10 @@ pub(super) fn import_world_maps(
                 remap[i] = color_indices[colors.binary_search(&source_colors[i]).unwrap()];
             }
             remaps.push(remap);
-            if let Some(existing) = palettes
+            if let Some(existing) = imported
                 .iter()
-                .find(|p| p.map_world == Some(world) && p.colors[1..] == palette_colors[1..])
+                .chain(palettes.iter())
+                .find(|p| p.colors[1..] == palette_colors[1..])
             {
                 world_palettes.push(existing.clone());
             } else {
@@ -257,7 +256,6 @@ pub(super) fn import_world_maps(
                     id: next_id.try_into().context("No unused palette IDs remain")?,
                     name: palette_name,
                     modified: true,
-                    map_world: Some(world),
                     colors: palette_colors,
                     ..Palette::default()
                 });
@@ -265,14 +263,6 @@ pub(super) fn import_world_maps(
                 new_count += 1;
             }
         }
-        let existing_count = palettes
-            .iter()
-            .filter(|p| p.map_world == Some(world))
-            .count();
-        ensure!(
-            existing_count + new_count <= 8,
-            "Import would exceed eight {name} World map palettes; existing artwork was preserved"
-        );
         let mut added_tiles = 0;
         let mut placements = [TilePlacement::default(); 256];
         for (i, (pixels, mask)) in source_tiles.iter().zip(&tile_colors).enumerate() {
@@ -281,10 +271,7 @@ pub(super) fn import_world_maps(
                 .position(|colors| colors & mask == *mask)
                 .unwrap();
             let palette = &mut world_palettes[palette_idx];
-            let mut tile = Tile {
-                map_use: Some(MapUse::Terrain),
-                ..Tile::default()
-            };
+            let mut tile = Tile::default();
             for (i, &pixel) in pixels.iter().enumerate() {
                 tile.pixels[i / 8][i % 8] = remaps[palette_idx][pixel as usize];
             }
@@ -332,13 +319,9 @@ pub(super) fn import_world_maps(
                 name: area_name.clone(),
                 theme: area_theme.clone(),
                 vanilla_map_id: None,
-                world: if world == MapWorld::Light {
-                    World::Light
-                } else {
-                    World::Dark
-                },
+                world,
                 other_world_area: Some(
-                    if world == MapWorld::Light {
+                    if world == World::Light {
                         "Dark World Map"
                     } else {
                         "Light World Map"

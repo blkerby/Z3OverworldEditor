@@ -185,18 +185,11 @@ pub fn get_cloud_world(area_name: &str) -> Option<World> {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "snake_case")]
-pub enum MapWorld {
-    Light,
-    Dark,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum MapUse {
-    Terrain,
-    Clouds,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MapUsage {
+    pub palettes: usize,
+    pub general_tiles: usize,
+    pub room_specific_tiles: usize,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -239,8 +232,6 @@ pub struct AreaId {
 #[derive(Copy, Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, Hash)]
 pub struct Tile {
     pub id: Option<TileIdx>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_use: Option<MapUse>,
     pub priority: bool,
     pub collision: CollisionType,
     pub h_flippable: bool,
@@ -263,8 +254,6 @@ pub struct Palette {
     #[serde(skip_serializing, skip_deserializing)]
     pub name: String,
     pub id: PaletteId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub map_world: Option<MapWorld>,
     pub colors: [ColorRGB; 16],
     pub tiles: Vec<Tile>,
     #[serde(default)]
@@ -327,7 +316,7 @@ impl Default for GlobalConfig {
     }
 }
 
-#[derive(Clone, Copy, Serialize_repr, Deserialize_repr, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize_repr, Deserialize_repr, Default, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Flip {
     #[default]
@@ -649,6 +638,7 @@ pub struct EditorState {
     pub dynamic_tile_frames: Vec<usize>,
 
     // Palette editing state:
+    pub map_usage: Option<[MapUsage; 2]>,
     pub palette_idx: PaletteIdx,
     pub color_idx: Option<ColorIdx>,
     pub selected_color: ColorRGB,
@@ -958,7 +948,6 @@ pub fn ensure_palettes_non_empty(state: &mut EditorState) {
             tiles: vec![
                 Tile {
                     id: None,
-                    map_use: None,
                     priority: false,
                     collision: 0,
                     h_flippable: true,
@@ -1003,6 +992,7 @@ pub fn get_initial_state() -> Result<EditorState> {
         dynamic_tile_type: DynamicTileType::CutGrass,
         dynamic_tile_frames: vec![],
         focus: Focus::None,
+        map_usage: None,
         palette_idx: 0,
         color_idx: None,
         selected_color: [0, 0, 0],

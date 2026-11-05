@@ -21,8 +21,8 @@ use crate::{
     state::{
         ensure_areas_non_empty, ensure_palettes_non_empty, ensure_themes_non_empty,
         get_cloud_world, is_valid_layer_name, Area, AreaId, AreaPosition, Background,
-        BackgroundLayering, DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, TileIdx,
-        TilePlacement, World,
+        BackgroundLayering, DynamicTiles, EditorState, Flip, Layer, MapUsage, Palette, PaletteId,
+        TileIdx, TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -973,6 +973,87 @@ pub fn delete_area_theme(state: &mut EditorState, area_name: &str, theme: &str) 
     Ok(())
 }
 
+pub fn count_map_tiles(state: &EditorState) -> Result<[MapUsage; 2]> {
+    let mut rooms = [Vec::new(), Vec::new()];
+    let mut general = [HashSet::new(), HashSet::new()];
+    let mut palettes = [HashSet::new(), HashSet::new()];
+    for area_name in &state.area_names {
+        let mut themes = [Vec::new(), Vec::new()];
+        let cloud_world = get_cloud_world(area_name);
+        for theme in state.get_area_themes(area_name) {
+            let area_id = AreaId {
+                area: area_name.clone(),
+                theme,
+            };
+            let saved_area;
+            let area = if let Some(area) = state.areas.get(&area_id) {
+                area
+            } else {
+                saved_area = load_area(state, &area_id)?;
+                &saved_area
+            };
+            let world = match cloud_world.unwrap_or(area.world) {
+                World::Light => 0,
+                World::Dark => 1,
+                World::Special => continue,
+            };
+            let mut tiles = HashSet::new();
+            for layer in &area.layers {
+                let grid = if cloud_world.is_some() {
+                    &layer.tiles
+                } else if let Some(map) = &layer.map {
+                    map
+                } else {
+                    continue;
+                };
+                for row in grid {
+                    for placement in row.iter().flatten() {
+                        tiles.insert((placement.palette, placement.tile, placement.flip));
+                        palettes[world].insert(placement.palette);
+                    }
+                }
+            }
+            if cloud_world.is_some() {
+                general[world].extend(tiles);
+            } else {
+                themes[world].push(tiles);
+            }
+        }
+        for (world, themes) in themes.into_iter().enumerate() {
+            rooms[world].push(themes);
+        }
+    }
+
+    let mut usage = [MapUsage::default(); 2];
+    for world in 0..2 {
+        let mut room_counts = HashMap::new();
+        for themes in &rooms[world] {
+            let mut room_tiles = HashSet::new();
+            for tiles in themes {
+                room_tiles.extend(tiles.iter().copied());
+            }
+            for tile in room_tiles {
+                *room_counts.entry(tile).or_insert(0) += 1;
+            }
+        }
+        for (tile, count) in room_counts {
+            if count > 1 {
+                general[world].insert(tile);
+            }
+        }
+        usage[world].palettes = palettes[world].len();
+        usage[world].general_tiles = general[world].len();
+        for themes in &rooms[world] {
+            let mut maximum = 0;
+            for tiles in themes {
+                maximum = maximum.max(tiles.difference(&general[world]).count());
+            }
+            usage[world].room_specific_tiles += maximum;
+        }
+    }
+    Ok(usage)
+}
+
 pub fn scan_used_tiles(state: &mut EditorState) -> Result<HashSet<(PaletteId, TileIdx)>> {
     let area_names = state.area_names.clone();
     let mut out = HashSet::new();
@@ -1156,6 +1237,7 @@ struct StoredConditions {
 }
 
 pub fn load_project(state: &mut EditorState) -> Result<()> {
+    state.map_usage = None;
     if state.global_config.project_dir.is_none() {
         bail!("Project directory not set");
     }

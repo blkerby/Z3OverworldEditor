@@ -852,6 +852,9 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
             Importer::import(state, &path.clone())?;
             state.dialogue = None;
         }
+        Message::CountMapTiles => {
+            state.map_usage = Some(persist::count_map_tiles(state)?);
+        }
         Message::SelectPalette(name) => {
             for i in 0..state.palettes.len() {
                 if name == &format!("{}: {}", state.palettes[i].id, state.palettes[i].name) {

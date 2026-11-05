@@ -13,8 +13,8 @@ use crate::{
     state::{
         get_cloud_world, AnimatedTileGroup, Area, AreaId, AreaName, Background, BackgroundLayering,
         ColorRGB, ColorValue, DynamicTileGrid, DynamicTileGroup, DynamicTileType,
-        DynamicTileVariant, DynamicTiles, EditorState, Flip, Layer, MapUse, Palette, PaletteId,
-        Tile, TileIdx, TilePixels, TilePlacement, World,
+        DynamicTileVariant, DynamicTiles, EditorState, Flip, Layer, Palette, PaletteId, Tile,
+        TileIdx, TilePixels, TilePlacement, World,
     },
     update::update_palette_order,
 };
@@ -660,9 +660,6 @@ impl<'a> Importer<'a> {
 
         let mut pal_by_colors: HashMap<[ColorRGB; 16], PaletteId> = HashMap::new();
         for pal in &self.state.palettes {
-            if pal.map_world.is_some() {
-                continue;
-            }
             let mut colors = pal.colors;
             colors[0] = [0, 0, 0];
             let _ = pal_by_colors.try_insert(colors, pal.id);
@@ -687,7 +684,6 @@ impl<'a> Importer<'a> {
                             modified: true,
                             name,
                             id: next_id,
-                            map_world: None,
                             colors,
                             tiles: vec![],
                             animated_tile_groups: vec![],
@@ -1249,7 +1245,6 @@ impl<'a> Importer<'a> {
                                         };
                                         let tile = Tile {
                                             id: None,
-                                            map_use: None,
                                             priority: t8.priority,
                                             h_flippable: false,
                                             v_flippable: false,
@@ -2158,12 +2153,8 @@ impl<'a> Importer<'a> {
 
     fn ensure_palette_full_rows(&mut self) -> Result<()> {
         for pal in &mut self.state.palettes {
-            let mut blank = Tile::default();
-            if pal.map_world.is_some() {
-                blank.map_use = Some(MapUse::Terrain);
-            }
             let size = (pal.tiles.len().div_ceil(16) * 16).max(16);
-            pal.tiles.resize(size, blank);
+            pal.tiles.resize(size, Tile::default());
             pal.modified = true;
         }
         Ok(())

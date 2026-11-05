@@ -61,6 +61,7 @@ pub enum Message {
     ImportConfirm(Option<PathBuf>),
     ImportROMProgress,
     ImportROM,
+    CountMapTiles,
     SelectPalette(String),
     AddPaletteDialogue,
     SetAddPaletteName(String),

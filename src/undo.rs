@@ -65,6 +65,7 @@ pub fn get_undo_action(state: &EditorState, message: &Message) -> Result<UndoAct
         Message::ImportConfirm(_) => UndoAction::None,
         Message::ImportROMProgress => UndoAction::None,
         Message::ImportROM => UndoAction::Irreversible,
+        Message::CountMapTiles => UndoAction::None,
         Message::SelectPalette(_) => UndoAction::None,
         Message::AddPaletteDialogue => UndoAction::None,
         Message::SetAddPaletteName(_) => UndoAction::None,

@@ -16,6 +16,20 @@ use super::modal_background_style;
 pub fn settings_view(state: &EditorState) -> Element<'_, Message> {
     let project_dir = state.global_config.project_dir.as_ref().unwrap();
     let zoom_range = MIN_PIXEL_SIZE..=MAX_PIXEL_SIZE;
+    let mut map_usage =
+        column![button("Count map tiles").on_press(Message::CountMapTiles)].spacing(5);
+    if let Some(usage) = &state.map_usage {
+        for (world, count) in ["Light World", "Dark World"].into_iter().zip(usage) {
+            map_usage = map_usage.push(text(format!(
+                "{world}: {} / 8 palettes, {} tiles, {} general + {} room-specific",
+                count.palettes,
+                count.general_tiles + count.room_specific_tiles,
+                count.general_tiles,
+                count.room_specific_tiles,
+            )));
+        }
+    }
+
     container(
         column![
             row![
@@ -62,6 +76,7 @@ pub fn settings_view(state: &EditorState) -> Element<'_, Message> {
             ]
             .spacing(10)
             .align_y(Vertical::Center),
+            map_usage,
             row![
                 button("Close")
                     .style(button::secondary)
