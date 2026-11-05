@@ -1358,7 +1358,10 @@ pub fn try_update(state: &mut EditorState, message: &Message) -> Result<Option<T
                             };
                             let src_pal_id = placement.palette;
                             if src_pal_id != palette_id {
-                                let src_pal_idx = state.palettes_id_idx_map[&src_pal_id];
+                                let Some(&src_pal_idx) = state.palettes_id_idx_map.get(&src_pal_id)
+                                else {
+                                    continue;
+                                };
                                 let src_pal = &state.palettes[src_pal_idx];
                                 for py in 0..8 {
                                     for px in 0..8 {
@@ -2481,7 +2484,7 @@ pub fn get_selected_gfx(state: &EditorState, s: &TileBlock) -> Vec<Vec<Option<Ti
                         Some(Tile::default())
                     }
                 } else {
-                    Some(Tile::default())
+                    None
                 }
             } else {
                 None
