@@ -821,10 +821,10 @@ pub fn area_grid_view(
             pixel_size,
             show_grid_16: state.show_grid_16,
             snap_grid_16: state.snap_grid_16,
-            hover_coords: if state.hover_source == Some(source) {
-                state.hover_coords
-            } else {
-                None
+            hover_coords: match (source, state.hover_source) {
+                (SelectionSource::Area(_), Some(SelectionSource::Area(_)))
+                | (SelectionSource::RoomMap, Some(SelectionSource::RoomMap)) => state.hover_coords,
+                _ => None,
             },
             grid_alpha: state.global_config.grid_alpha,
         })
